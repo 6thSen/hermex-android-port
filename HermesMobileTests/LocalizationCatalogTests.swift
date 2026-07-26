@@ -223,4 +223,45 @@ final class LocalizationCatalogTests: XCTestCase {
             }
         }
     }
+
+    func testKanbanDispatcherCopyIsLocalizedInEveryShippedLanguage() throws {
+        let data = try Data(contentsOf: catalogURL())
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let strings = try XCTUnwrap(root["strings"] as? [String: Any])
+        let dispatcherKeys = [
+            "Another Board action is in progress.",
+            "Auto-blocked",
+            "Crashed",
+            "Dispatcher",
+            "Dispatcher is unavailable on this server.",
+            "Hermex refreshed the Board, but cannot prove whether workers started. Review the current Board before running Dispatcher again.",
+            "I Reviewed the Board",
+            "Preview Dispatch",
+            "Preview is advisory and may become stale. It never starts workers.",
+            "Promoted",
+            "Reclaimed",
+            "Refresh failed. Try again before using Dispatcher.",
+            "Run Dispatcher",
+            "Running Dispatcher...",
+            "Skipped—No Assignee",
+            "Skipped—Unknown Profile",
+            "Spawned",
+            "The server refused this Dispatcher request. Hermex did not retry it.",
+            "This Preview is stale. Run Preview Dispatch again before relying on it.",
+            "This may start up to %lld workers and consume API budget.",
+            "Timed Out"
+        ]
+
+        for key in dispatcherKeys {
+            let entry = try XCTUnwrap(strings[key] as? [String: Any], key)
+            let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], key)
+            for language in Self.shippedLanguages {
+                let localization = try XCTUnwrap(
+                    localizations[language] as? [String: Any],
+                    "[\(language)] \(key)"
+                )
+                XCTAssertTrue(hasNonEmptyValue(localization), "[\(language)] \(key) is empty")
+            }
+        }
+    }
 }
