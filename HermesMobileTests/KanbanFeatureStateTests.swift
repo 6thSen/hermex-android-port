@@ -174,6 +174,26 @@ final class KanbanFeatureStateTests: XCTestCase {
         XCTAssertTrue(state.onlyMine)
     }
 
+    func testGroupByProfileDraftCancelsOrAppliesLocallyWithoutRefetchingBoard() async {
+        let client = BrowsingClient()
+        let state = KanbanFeatureState(server: URL(string: "https://example.test")!, client: client)
+        await state.load()
+        let requestsBeforeToggle = await client.boardRequests()
+        var draft = KanbanFiltersDraft(model: state)
+
+        draft.groupsByProfile = true
+
+        XCTAssertFalse(state.groupByProfile, "A cancelled draft must not mutate presentation state.")
+        var requestsAfterDraftChange = await client.boardRequests()
+        XCTAssertEqual(requestsAfterDraftChange, requestsBeforeToggle)
+
+        await draft.apply(to: state)
+
+        XCTAssertTrue(state.groupByProfile)
+        requestsAfterDraftChange = await client.boardRequests()
+        XCTAssertEqual(requestsAfterDraftChange, requestsBeforeToggle)
+    }
+
     func testBoardSwitchClearsBoardScopedDataAndRevalidatesCompatibility() async {
         let client = DeferredBoardSwitchClient()
         let state = KanbanFeatureState(server: URL(string: "https://example.test")!, client: client)
@@ -488,6 +508,100 @@ final class KanbanFeatureStateTests: XCTestCase {
         XCTAssertTrue(state.isPreviewStale)
         let finalRequestCount = await client.dispatchRequestCount
         XCTAssertEqual(finalRequestCount, 1)
+    }
+
+    func testDispatcherToolbarResultPersistsUntilExplicitDismissal() async {
+        let client = DispatcherClient()
+        let state = KanbanFeatureState(
+            server: URL(string: "https://example.test")!,
+            client: client
+        )
+        await state.load()
+
+        XCTAssertFalse(KanbanDispatcherPresentation.hasResult(state.dispatchState))
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarAccessibilityLabel(for: state.dispatchState),
+            String(localized: "Dispatcher")
+        )
+
+        await state.previewDispatch()
+
+        XCTAssertTrue(KanbanDispatcherPresentation.hasResult(state.dispatchState))
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarAccessibilityLabel(for: state.dispatchState),
+            String(localized: "Dispatcher, result available")
+        )
+
+        let failed = KanbanDispatchState(
+            mode: .preview,
+            boardSlug: "main",
+            phase: .failed,
+            result: nil,
+            completedAt: nil,
+            boardActivityGeneration: 0
+        )
+        let refused = KanbanDispatchState(
+            mode: .run,
+            boardSlug: "main",
+            phase: .refused,
+            result: nil,
+            completedAt: nil,
+            boardActivityGeneration: 0
+        )
+        let uncertain = KanbanDispatchState(
+            mode: .run,
+            boardSlug: "main",
+            phase: .outcomeUncertain,
+            result: nil,
+            completedAt: nil,
+            boardActivityGeneration: 0
+        )
+        let uncertainWithResult = KanbanDispatchState(
+            mode: .run,
+            boardSlug: "main",
+            phase: .outcomeUncertain,
+            result: state.dispatchState?.result,
+            completedAt: nil,
+            boardActivityGeneration: 0
+        )
+        XCTAssertFalse(KanbanDispatcherPresentation.hasResult(failed))
+        XCTAssertFalse(KanbanDispatcherPresentation.hasResult(refused))
+        XCTAssertFalse(KanbanDispatcherPresentation.hasResult(uncertain))
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarSystemImage(for: failed),
+            "bolt.horizontal.circle"
+        )
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarSystemImage(for: refused),
+            "bolt.horizontal.circle"
+        )
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarSystemImage(for: uncertain),
+            "exclamationmark.circle.fill",
+            "Ambiguous-outcome recovery must use a distinct, visibly reopenable indicator."
+        )
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarAccessibilityLabel(for: uncertain),
+            String(localized: "Dispatcher, attention required")
+        )
+        XCTAssertTrue(KanbanDispatcherPresentation.hasResult(uncertainWithResult))
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarSystemImage(for: state.dispatchState),
+            "bolt.horizontal.circle.fill"
+        )
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarSystemImage(for: uncertainWithResult),
+            "bolt.horizontal.circle.fill"
+        )
+        XCTAssertEqual(
+            KanbanDispatcherPresentation.toolbarAccessibilityLabel(for: uncertainWithResult),
+            String(localized: "Dispatcher, result available")
+        )
+
+        state.dismissDispatchResult()
+
+        XCTAssertNil(state.dispatchState)
+        XCTAssertFalse(KanbanDispatcherPresentation.hasResult(state.dispatchState))
     }
 
     func testRunDispatcherJoinsBoardWideLockAndAlwaysReconcilesWithoutRequiringPreview() async {
