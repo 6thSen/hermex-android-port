@@ -436,7 +436,7 @@ class ChatViewModel internal constructor(
         _state.update { current ->
             val nextSessionModel = snapshot.model.nonBlank() ?: current.sessionModel
             val nextSessionModelProvider = snapshot.modelProvider.nonBlank() ?: current.sessionModelProvider
-            val sessionModelSelection = current.modelOptions.firstMatchingModel(nextSessionModel, nextSessionModelProvider)
+            val sessionModelSelection = current.modelOptions.firstMatchingCatalogModel(nextSessionModel, nextSessionModelProvider)
             transform(
                 current.copy(
                     messages = snapshot.messages,
@@ -561,7 +561,7 @@ class ChatViewModel internal constructor(
                 val profileOptions = config.profiles.profiles.orEmpty()
                 val activeProfileName = config.profiles.active.nonBlank()
                 _state.update {
-                    val sessionModelSelection = config.models.firstMatchingModel(it.sessionModel, it.sessionModelProvider)
+                    val sessionModelSelection = config.models.firstMatchingCatalogModel(it.sessionModel, it.sessionModelProvider)
                     it.copy(
                         modelOptions = config.models,
                         agentCommands = config.agentCommands,
@@ -655,7 +655,7 @@ class ChatViewModel internal constructor(
             }.onSuccess { config ->
                 val resolvedSessionModel = config?.model ?: snapshot.sessionModel ?: model.modelIdentity
                 val resolvedSessionProvider = config?.modelProvider ?: snapshot.sessionModelProvider ?: model.provider
-                val resolvedModel = _state.value.modelOptions.firstMatchingModel(resolvedSessionModel, resolvedSessionProvider) ?: model
+                val resolvedModel = _state.value.modelOptions.firstMatchingCatalogModel(resolvedSessionModel, resolvedSessionProvider) ?: model
                 _state.update {
                     it.copy(
                         selectedModel = resolvedModel,
@@ -769,7 +769,7 @@ class ChatViewModel internal constructor(
                     val selectedWorkspace = response.defaultWorkspace?.takeIf { it.isNotBlank() }
                         ?: _state.value.selectedWorkspacePath
                     val selectedModel = response.defaultModel?.takeIf { it.isNotBlank() }?.let { modelName ->
-                        _state.value.modelOptions.firstMatchingModel(modelName, selectedProfile.provider)
+                        _state.value.modelOptions.firstMatchingCatalogModel(modelName, selectedProfile.provider)
                     } ?: _state.value.selectedModel
                     _state.update { current ->
                         current.copy(
@@ -928,7 +928,7 @@ class ChatViewModel internal constructor(
                 val resolvedWorkspace = config.workspace ?: workspace
                 val resolvedSessionModel = config.model ?: previousSessionModel
                 val resolvedSessionProvider = config.modelProvider ?: previousSessionModelProvider
-                val resolvedModel = _state.value.modelOptions.firstMatchingModel(resolvedSessionModel, resolvedSessionProvider)
+                val resolvedModel = _state.value.modelOptions.firstMatchingCatalogModel(resolvedSessionModel, resolvedSessionProvider)
                     ?: _state.value.selectedModel
                 _state.update {
                     it.copy(
@@ -3356,9 +3356,6 @@ class ChatViewModel internal constructor(
         val targetProvider = provider.nonBlank() ?: return true
         return this.provider.nonBlank()?.equals(targetProvider, ignoreCase = true) == true
     }
-
-    private fun List<ModelSummary>.firstMatchingModel(model: String?, provider: String?): ModelSummary? =
-        firstOrNull { option -> option.matchesModelIdentity(model, provider) }
 
     private fun String?.nonBlank(): String? = this?.trim()?.takeIf { it.isNotBlank() }
 

@@ -45,9 +45,34 @@ jobs:
       - name: Verify endpoint parity
         run: python3 ci/endpoint_parity.py
 
+      - name: Prepare Android release signing
+        env:
+          HERMEX_ANDROID_KEYSTORE_BASE64: ${{ secrets.HERMEX_ANDROID_KEYSTORE_BASE64 }}
+          HERMEX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.HERMEX_ANDROID_KEYSTORE_PASSWORD }}
+          HERMEX_ANDROID_KEY_ALIAS: ${{ secrets.HERMEX_ANDROID_KEY_ALIAS }}
+          HERMEX_ANDROID_KEY_PASSWORD: ${{ secrets.HERMEX_ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in \
+            HERMEX_ANDROID_KEYSTORE_BASE64 \
+            HERMEX_ANDROID_KEYSTORE_PASSWORD \
+            HERMEX_ANDROID_KEY_ALIAS \
+            HERMEX_ANDROID_KEY_PASSWORD; do
+            if [ -z "${!value:-}" ]; then
+              echo "Missing required signing secret: $value"
+              exit 1
+            fi
+          done
+          keystore_path="$RUNNER_TEMP/hermex-android-release.jks"
+          printf '%s' "$HERMEX_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "HERMEX_ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEYSTORE_PASSWORD=$HERMEX_ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEY_ALIAS=$HERMEX_ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "HERMEX_ANDROID_KEY_PASSWORD=$HERMEX_ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
       - name: Test and build Android artifacts
         working-directory: android
-        run: ./gradlew testDebugUnitTest assembleDebug bundleRelease
+        run: ./gradlew testDebugUnitTest lintRelease assembleRelease bundleRelease
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v5
@@ -55,7 +80,7 @@ jobs:
           name: hermex-android-artifacts
           if-no-files-found: error
           path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/release/app-release.apk
             android/app/build/outputs/bundle/release/app-release.aab
 
   github-release:
@@ -73,12 +98,21 @@ jobs:
       - name: Create release notes
         run: |
           cat > release-notes.md <<'EOF'
-          Hermex native Android release artifacts.
+          Hermex 1.0 native Android release artifacts.
+
+          The APK and AAB are signed with the permanent Hermex release key. Keep using
+          this signing identity for every future update.
+
+          Upgrade note: GitHub APKs from 0.2.7 and earlier used a debug signature.
+          Android may require uninstalling that build once before installing 1.0.0.
+          Hermes server data remains on the server, but local connections and settings
+          may need to be entered again.
 
           This release was gated by:
           - iOS/Android endpoint parity
           - Android unit tests
-          - debug APK and release AAB builds
+          - Android release lint
+          - production-signed release APK and AAB builds
           EOF
 
       - name: Publish GitHub release

@@ -423,8 +423,10 @@ fun ChatRoute(
     var showsClearConversationConfirmation by remember { mutableStateOf(false) }
     var turnDiffPresentation by remember { mutableStateOf<TurnDiffPresentation?>(null) }
     var autoVoiceConsumed by remember(sessionId, autoStartVoice) { mutableStateOf(false) }
+    var topBarHeightPx by remember(sessionId) { mutableIntStateOf(0) }
     var composerHeightPx by remember(sessionId) { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val topBarHeight = with(density) { topBarHeightPx.toDp() }.takeIf { it > 0.dp } ?: 82.dp
     val composerHeight = with(density) { composerHeightPx.toDp() }.takeIf { it > 0.dp } ?: 160.dp
     val transcriptListState = rememberLazyListState()
     var followsTranscriptBottom by remember(sessionId) { mutableStateOf(true) }
@@ -626,7 +628,7 @@ fun ChatRoute(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 82.dp)
+                .padding(top = topBarHeight)
                 .imePadding(),
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides chatLayoutDirection) {
@@ -887,6 +889,7 @@ fun ChatRoute(
             onBack = onBack,
             onOpenWorkspace = onOpenWorkspace,
             onOpenGit = onOpenGit,
+            modifier = Modifier.onSizeChanged { topBarHeightPx = it.height },
         )
     }
 
@@ -1344,9 +1347,10 @@ private fun ChatTopBar(
     onBack: () -> Unit,
     onOpenWorkspace: () -> Unit,
     onOpenGit: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .hermexGlass(

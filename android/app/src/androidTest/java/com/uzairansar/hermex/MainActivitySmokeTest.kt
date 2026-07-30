@@ -1,6 +1,7 @@
 package com.uzairansar.hermex
 
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertTrue
@@ -16,12 +17,21 @@ class MainActivitySmokeTest {
     @Test
     fun launchesIntoKnownRootSurface() {
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            hasText("Control your Hermes agent from Android.") || hasText("Sessions")
+            hasText("Control your Hermes agent from Android.") ||
+                hasText("Sessions") ||
+                hasTag("chat_composer")
         }
 
-        assertTrue(hasText("Control your Hermes agent from Android.") || hasText("Sessions"))
+        assertTrue(
+            hasText("Control your Hermes agent from Android.") ||
+                hasText("Sessions") ||
+                hasTag("chat_composer"),
+        )
     }
 
     private fun hasText(text: String): Boolean =
         composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+
+    private fun hasTag(tag: String): Boolean =
+        composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 }

@@ -181,6 +181,12 @@ fun SessionListRoute(
         searchExpanded = false
     }
 
+    // Navigation keeps this ViewModel alive while chat is on top. Refresh each time
+    // the sessions destination re-enters composition so newly changed chats appear.
+    LaunchedEffect(viewModel) {
+        viewModel.refreshAll()
+    }
+
     LaunchedEffect(initialArchived) {
         if (initialArchived && !state.showArchived) {
             viewModel.toggleArchived()

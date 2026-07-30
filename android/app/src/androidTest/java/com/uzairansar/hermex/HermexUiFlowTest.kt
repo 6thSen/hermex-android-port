@@ -401,6 +401,79 @@ class HermexUiFlowTest {
     }
 
     @Test
+    fun sessionListRefreshesWhenDestinationReturns() {
+        val showUpdatedSession = AtomicBoolean(false)
+        val mockServer = MockWebServer().also { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.url.encodedPath) {
+                    "/api/projects" -> json("""{"projects":[]}""")
+                    "/api/profiles" -> json("""{"profiles":[],"single_profile_mode":true}""")
+                    "/api/sessions" -> json(
+                        if (showUpdatedSession.get()) {
+                            """
+                            {
+                              "sessions": [
+                                {"session_id":"s-new","title":"Freshly created chat","message_count":1}
+                              ],
+                              "archived_count":0
+                            }
+                            """.trimIndent()
+                        } else {
+                            """
+                            {
+                              "sessions": [
+                                {"session_id":"s-old","title":"Existing chat","message_count":1}
+                              ],
+                              "archived_count":0
+                            }
+                            """.trimIndent()
+                        },
+                    )
+                    else -> MockResponse.Builder().code(404).body("""{"error":"unexpected"}""").build()
+                }
+            }
+            server.start()
+            this.server = server
+        }
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val container = AppContainer(application)
+        val account = ServerAccount(
+            id = mockServer.url("/").toString(),
+            urlString = mockServer.url("/").toString(),
+            displayName = "Mock Hermex",
+            initials = "MH",
+        )
+        val showsSessions = mutableStateOf(true)
+
+        composeRule.setContent {
+            HermexTheme {
+                if (showsSessions.value) {
+                    SessionListRoute(
+                        authState = AuthState.LoggedIn(mockServer.url("/"), account),
+                        container = container,
+                        onOpenChat = {},
+                        onOpenVoiceChat = {},
+                        onOpenSharedDraft = {},
+                        onOpenPanels = {},
+                        onOpenSettings = {},
+                        onNeedsOnboarding = {},
+                    )
+                } else {
+                    Text("Chat destination")
+                }
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Existing chat") }
+        showUpdatedSession.set(true)
+        composeRule.runOnUiThread { showsSessions.value = false }
+        composeRule.onNodeWithText("Chat destination").assertIsDisplayed()
+        composeRule.runOnUiThread { showsSessions.value = true }
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Freshly created chat") }
+        composeRule.onNodeWithText("Freshly created chat").assertIsDisplayed()
+    }
+
+    @Test
     fun existingConversationProfileChangeConfirmsAndCreatesNewSession() {
         var switchBody = ""
         var newSessionBody = ""
@@ -829,6 +902,9 @@ class HermexUiFlowTest {
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Mock response") }
 
         composeRule.onNodeWithText("Mock response").assertExists()
+        val topBarBounds = composeRule.onNodeWithTag("chat_top_bar").fetchSemanticsNode().boundsInRoot
+        val transcriptBounds = composeRule.onNodeWithTag("chat_transcript").fetchSemanticsNode().boundsInRoot
+        assertTrue(transcriptBounds.top >= topBarBounds.bottom - 1f)
         val shortUserBubbleWidth = composeRule
             .onAllNodesWithTag("user_message_bubble")
             .fetchSemanticsNodes()
