@@ -35,8 +35,8 @@ class ChatComposerProfileStateTest {
     }
 
     @Test
-    fun profileCanChangeOnlyBeforeConversationHasPersistedHistory() {
-        assertTrue(ChatProfileSwitchPolicy.canSwitchProfile(hasPersistedConversation = false))
-        assertFalse(ChatProfileSwitchPolicy.canSwitchProfile(hasPersistedConversation = true))
+    fun persistedConversationRequiresNewSessionConfirmationForProfileChange() {
+        assertFalse(ChatProfileSwitchPolicy.requiresNewSessionConfirmation(hasPersistedConversation = false))
+        assertTrue(ChatProfileSwitchPolicy.requiresNewSessionConfirmation(hasPersistedConversation = true))
     }
 }

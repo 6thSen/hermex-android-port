@@ -1,12 +1,15 @@
 package com.uzairansar.hermex.ui.chat
 
+import android.animation.ValueAnimator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.method.LinkMovementMethod
+import android.text.style.ForegroundColorSpan
 import android.widget.TextView
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -32,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -87,37 +89,33 @@ fun MarkdownText(
             delay(STREAM_RENDER_INTERVAL_MILLIS)
         }
     }
-    val fadeAlpha = remember { Animatable(1f) }
-    LaunchedEffect(renderedMarkdown, isStreaming, streamedTextAnimationEnabled) {
-        if (isStreaming && streamedTextAnimationEnabled) {
-            fadeAlpha.snapTo(0.72f)
-            fadeAlpha.animateTo(1f, animationSpec = tween(durationMillis = 220))
-        } else {
-            fadeAlpha.snapTo(1f)
-        }
-    }
     var parsedSegments by remember { mutableStateOf<List<MarkdownSegment>?>(null) }
     LaunchedEffect(renderedMarkdown) {
         parsedSegments = withContext(Dispatchers.Default) { renderedMarkdown.parseMarkdownSegments() }
     }
     val segments = parsedSegments ?: listOf(MarkdownSegment.Markdown(renderedMarkdown))
-    val animatedModifier = modifier.graphicsLayer(alpha = fadeAlpha.value)
     if (segments.size == 1 && segments.single() is MarkdownSegment.Markdown) {
         MarkdownAndroidView(
             markdown = (segments.single() as MarkdownSegment.Markdown).text,
-            modifier = animatedModifier,
+            modifier = modifier,
+            isStreaming = isStreaming,
+            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
         )
         return
     }
     Column(
-        modifier = animatedModifier,
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         segments.forEach { segment ->
             when (segment) {
                 is MarkdownSegment.Markdown -> {
                     if (segment.text.isNotBlank()) {
-                        MarkdownAndroidView(markdown = segment.text)
+                        MarkdownAndroidView(
+                            markdown = segment.text,
+                            isStreaming = isStreaming,
+                            streamedTextAnimationEnabled = streamedTextAnimationEnabled,
+                        )
                     }
                 }
                 is MarkdownSegment.CodeBlock -> ChatCodeBlock(
@@ -131,11 +129,15 @@ fun MarkdownText(
 }
 
 private const val STREAM_RENDER_INTERVAL_MILLIS = 50L
+private const val STREAMING_SUFFIX_FADE_DURATION_MILLIS = 220L
+private const val STREAMING_SUFFIX_START_ALPHA = 72
 
 @Composable
 private fun MarkdownAndroidView(
     markdown: String,
     modifier: Modifier = Modifier,
+    isStreaming: Boolean = false,
+    streamedTextAnimationEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
@@ -194,6 +196,7 @@ private fun MarkdownAndroidView(
                 setTextColor(textColor)
                 setLinkTextColor(linkColor)
                 movementMethod = LinkMovementMethod.getInstance()
+                tag = StreamingMarkdownViewState()
             }
         },
         update = { textView ->
@@ -201,10 +204,79 @@ private fun MarkdownAndroidView(
             textView.setLinkTextColor(linkColor)
             textView.setHorizontallyScrolling(false)
             textView.isHorizontalScrollBarEnabled = false
-            parsedMarkdown?.let { markwon.setParsedMarkdown(textView, it) }
+            parsedMarkdown?.let { parsed ->
+                val viewState = textView.tag as? StreamingMarkdownViewState
+                    ?: StreamingMarkdownViewState().also { textView.tag = it }
+                viewState.animator?.cancel()
+                val nextText = parsed.toString()
+                val suffixStart = streamingSuffixStart(viewState.previousText, nextText)
+                val spannable = SpannableStringBuilder(parsed)
+                markwon.setParsedMarkdown(textView, spannable)
+                val displayedText = textView.text as? Spannable ?: spannable
+                if (isStreaming && streamedTextAnimationEnabled && suffixStart < displayedText.length) {
+                    animateStreamingSuffix(textView, displayedText, suffixStart, textColor, viewState)
+                }
+                viewState.previousText = nextText
+            }
         },
     )
 }
+
+internal fun streamingSuffixStart(previous: String, current: String): Int {
+    val limit = minOf(previous.length, current.length)
+    var index = 0
+    while (index < limit && previous[index] == current[index]) index += 1
+    if (
+        index in 1 until current.length &&
+        current[index - 1].isHighSurrogate() &&
+        current[index].isLowSurrogate()
+    ) {
+        index -= 1
+    }
+    return index
+}
+
+private fun animateStreamingSuffix(
+    textView: TextView,
+    text: Spannable,
+    start: Int,
+    baseColor: Int,
+    state: StreamingMarkdownViewState,
+) {
+    var span: ForegroundColorSpan? = null
+    val animator = ValueAnimator.ofInt(STREAMING_SUFFIX_START_ALPHA, 255).apply {
+        duration = STREAMING_SUFFIX_FADE_DURATION_MILLIS
+        addUpdateListener { animation ->
+            span?.let(text::removeSpan)
+            val alpha = animation.animatedValue as Int
+            span = ForegroundColorSpan((baseColor and 0x00FFFFFF) or (alpha shl 24)).also { colorSpan ->
+                text.setSpan(colorSpan, start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            textView.invalidate()
+        }
+        addListener(object : android.animation.AnimatorListenerAdapter() {
+            private var finished = false
+
+            private fun finish(animation: android.animation.Animator) {
+                if (finished) return
+                finished = true
+                span?.let(text::removeSpan)
+                textView.invalidate()
+                if (state.animator === animation) state.animator = null
+            }
+
+            override fun onAnimationEnd(animation: android.animation.Animator) = finish(animation)
+            override fun onAnimationCancel(animation: android.animation.Animator) = finish(animation)
+        })
+    }
+    state.animator = animator
+    animator.start()
+}
+
+private data class StreamingMarkdownViewState(
+    var previousText: String = "",
+    var animator: ValueAnimator? = null,
+)
 
 @Composable
 private fun ChatCodeBlock(

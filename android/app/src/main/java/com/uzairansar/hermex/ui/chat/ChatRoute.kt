@@ -25,10 +25,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +81,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -86,6 +89,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -100,7 +104,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -188,11 +194,18 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 private data class TurnDiffPresentation(
     val files: List<GitFileChange>,
     val initialPath: String? = null,
 )
+
+private enum class VoicePermissionAction {
+    Dictation,
+    VoiceNote,
+}
 
 @Composable
 fun ChatRoute(
@@ -297,6 +310,7 @@ fun ChatRoute(
     val latestResponseCompletionNotificationsEnabled by rememberUpdatedState(responseCompletionNotificationsEnabled)
     val latestShowResponseExcerpts by rememberUpdatedState(chatDisplaySettings.showsStatusNotificationResponseExcerpts)
     val recorder = remember(context) { VoiceNoteRecorder(context) }
+    val dictationController = remember(context) { VoiceDictationController(context) }
     val streamNotifier = remember(context) { StreamStatusNotifier(context.applicationContext) }
     val ttsState = remember { mutableStateOf<TextToSpeech?>(null) }
     val serverSpeechPlayer = remember { mutableStateOf<MediaPlayer?>(null) }
@@ -321,6 +335,7 @@ fun ChatRoute(
         ttsState.value = tts
         onDispose {
             if (recorder.isRecording) viewModel.cancelVoiceNote(recorder)
+            dictationController.cancel()
             releaseServerSpeech()
             tts.stop()
             tts.shutdown()
@@ -342,8 +357,58 @@ fun ChatRoute(
         }
         uris.take(availableSlots).forEach { uri -> viewModel.attach(context, uri) }
     }
+    var pendingVoicePermissionAction by remember { mutableStateOf<VoicePermissionAction?>(null) }
+    var isVoiceDictating by remember { mutableStateOf(false) }
+    var voiceDictationError by remember { mutableStateOf<String?>(null) }
+    var voiceDictationBaseDraft by remember { mutableStateOf("") }
+    val beginVoiceDictation: () -> Unit = {
+        if (isVoiceDictating) {
+            dictationController.stop()
+        } else {
+            voiceDictationBaseDraft = state.draft
+            voiceDictationError = null
+            dictationController.start(
+                onText = { transcript, _ ->
+                    viewModel.updateDraft(voiceDictationDraft(voiceDictationBaseDraft, transcript))
+                },
+                onListeningChanged = { isVoiceDictating = it },
+                onError = { voiceDictationError = it },
+            )
+        }
+    }
+    val beginVoiceNote: () -> Unit = {
+        if (isVoiceDictating) dictationController.cancel { isVoiceDictating = it }
+        voiceDictationError = null
+        viewModel.startVoiceNote(recorder)
+    }
     val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.startVoiceNote(recorder)
+        val action = pendingVoicePermissionAction
+        pendingVoicePermissionAction = null
+        if (granted) {
+            when (action) {
+                VoicePermissionAction.Dictation -> beginVoiceDictation()
+                VoicePermissionAction.VoiceNote -> beginVoiceNote()
+                null -> Unit
+            }
+        } else {
+            voiceDictationError = "Microphone permission is required for voice input."
+        }
+    }
+    val requestVoiceDictation: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            beginVoiceDictation()
+        } else {
+            pendingVoicePermissionAction = VoicePermissionAction.Dictation
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    val requestVoiceNote: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            beginVoiceNote()
+        } else {
+            pendingVoicePermissionAction = VoicePermissionAction.VoiceNote
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
     var showsModelPicker by remember { mutableStateOf(false) }
     var showsProfilePicker by remember { mutableStateOf(false) }
@@ -358,10 +423,17 @@ fun ChatRoute(
     var showsClearConversationConfirmation by remember { mutableStateOf(false) }
     var turnDiffPresentation by remember { mutableStateOf<TurnDiffPresentation?>(null) }
     var autoVoiceConsumed by remember(sessionId, autoStartVoice) { mutableStateOf(false) }
+    var composerHeightPx by remember(sessionId) { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val composerHeight = with(density) { composerHeightPx.toDp() }.takeIf { it > 0.dp } ?: 160.dp
     val transcriptListState = rememberLazyListState()
     var followsTranscriptBottom by remember(sessionId) { mutableStateOf(true) }
     val isTranscriptAtBottom by remember(sessionId, transcriptListState) {
-        derivedStateOf { !transcriptListState.canScrollForward }
+        derivedStateOf {
+            val layout = transcriptListState.layoutInfo
+            layout.totalItemsCount == 0 ||
+                layout.visibleItemsInfo.lastOrNull()?.index == layout.totalItemsCount - 1
+        }
     }
 
     LaunchedEffect(transcriptListState) {
@@ -382,11 +454,25 @@ fun ChatRoute(
         state.liveToolActivity,
         state.responseCompletionTrigger,
         state.isLoading,
+        composerHeightPx,
     ) {
         if (!followsTranscriptBottom) return@LaunchedEffect
         delay(32)
         val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
         if (lastItem >= 0) transcriptListState.animateScrollToItem(lastItem)
+    }
+
+    LaunchedEffect(isTranscriptAtBottom, followsTranscriptBottom) {
+        if (isTranscriptAtBottom || !followsTranscriptBottom || transcriptListState.isScrollInProgress) {
+            return@LaunchedEffect
+        }
+        // AndroidView-backed Markdown can grow after the message-count effect fires.
+        // Re-anchor once the next frame has committed the measured height.
+        withFrameNanos { }
+        if (followsTranscriptBottom && !transcriptListState.isScrollInProgress) {
+            val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
+            if (lastItem >= 0) transcriptListState.scrollToItem(lastItem)
+        }
     }
 
     LaunchedEffect(state.showsReasoningControl) {
@@ -470,11 +556,7 @@ fun ChatRoute(
     LaunchedEffect(autoStartVoice, autoVoiceConsumed) {
         if (autoStartVoice && !autoVoiceConsumed) {
             autoVoiceConsumed = true
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                viewModel.startVoiceNote(recorder)
-            } else {
-                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-            }
+            requestVoiceDictation()
         }
     }
 
@@ -544,7 +626,8 @@ fun ChatRoute(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 82.dp),
+                .padding(top = 82.dp)
+                .imePadding(),
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides chatLayoutDirection) {
                 Column(Modifier.fillMaxSize()) {
@@ -592,7 +675,7 @@ fun ChatRoute(
                         start = 14.dp,
                         end = 14.dp,
                         top = 8.dp,
-                        bottom = 224.dp,
+                        bottom = composerHeight + 40.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -721,6 +804,9 @@ fun ChatRoute(
                             AssistantTypingIndicator()
                         }
                     }
+                    item("transcript-bottom-anchor") {
+                        Spacer(Modifier.height(1.dp))
+                    }
                 }
             }
             }
@@ -729,7 +815,7 @@ fun ChatRoute(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(if (isTranscriptAtBottom) 230.dp else 166.dp)
+                    .height(composerHeight + 64.dp)
                     .background(
                         Brush.verticalGradient(
                             0f to Color.Transparent,
@@ -742,12 +828,14 @@ fun ChatRoute(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .imePadding()
-                    .navigationBarsPadding(),
+                    .navigationBarsPadding()
+                    .onSizeChanged { composerHeightPx = it.height },
             ) {
                 CompositionLocalProvider(LocalLayoutDirection provides chatLayoutDirection) {
                     ComposerSurface(
                         state = state,
+                        isVoiceDictating = isVoiceDictating,
+                        voiceDictationError = voiceDictationError,
                         streamingSendBehavior = streamingSendBehavior,
                         primaryActionTintColor = primaryActionTintColor,
                         showSecondaryBar = isTranscriptAtBottom,
@@ -761,15 +849,9 @@ fun ChatRoute(
                         onOpenWorkspacePicker = { showsWorkspacePicker = true },
                         onLoadWorkspaceSuggestions = viewModel::loadWorkspaceSuggestions,
                         onAttach = { showsAttachmentOptions = true },
-                        onVoice = {
-                            if (state.isRecordingVoiceNote) {
-                                viewModel.stopAndTranscribeVoiceNote(recorder)
-                            } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                viewModel.startVoiceNote(recorder)
-                            } else {
-                                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        },
+                        onVoiceDictation = requestVoiceDictation,
+                        onVoiceNote = requestVoiceNote,
+                        onStopVoiceNote = { viewModel.stopAndSendVoiceNote(recorder) },
                         onCancelVoice = { viewModel.cancelVoiceNote(recorder) },
                         onRemoveAttachment = viewModel::removeAttachment,
                         loadAttachmentImage = viewModel::attachmentImageData,
@@ -779,7 +861,7 @@ fun ChatRoute(
             }
             if (!isTranscriptAtBottom) {
                 HermexIconButton(
-                    label = "Go to latest message",
+                    label = localizedString("Go to latest message"),
                     symbol = "↓",
                     onClick = {
                         followsTranscriptBottom = true
@@ -792,7 +874,7 @@ fun ChatRoute(
                     },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 174.dp)
+                        .padding(bottom = composerHeight + 12.dp)
                         .size(48.dp)
                         .testTag("chat_scroll_to_bottom"),
                 )
@@ -915,6 +997,13 @@ fun ChatRoute(
                 showsProfilePicker = false
                 viewModel.selectProfile(profile)
             },
+        )
+    }
+    state.pendingProfileSwitch?.let { pending ->
+        StartNewProfileSessionDialog(
+            profileTitle = pending.profile.displayTitle,
+            onDismiss = viewModel::dismissPendingProfileSwitch,
+            onConfirm = viewModel::confirmProfileSwitchStartingNewSession,
         )
     }
     if (showsReasoningPicker && state.showsReasoningControl) {
@@ -1205,7 +1294,7 @@ private fun AttachmentPreviewSheet(
                 )
             } else if (attachment.isKnownUnsupportedBinary) {
                 AttachmentPreviewUnavailable(
-                    message = "Preview is not available for this file type.",
+                    message = localizedString("Preview is not available for this file type."),
                     path = attachment.resolvedAttachmentPath ?: attachment.displayName,
                 )
             } else {
@@ -1271,7 +1360,7 @@ private fun ChatTopBar(
             .testTag("chat_top_bar"),
     ) {
         HermexIconButton(
-            label = "Back",
+            label = localizedString("Back"),
             symbol = "\u2039",
             onClick = onBack,
             modifier = Modifier.align(Alignment.CenterStart),
@@ -1309,14 +1398,14 @@ private fun ChatTopBar(
                     .padding(2.dp),
             ) {
                 HermexIconButton(
-                    label = "Files",
+                    label = localizedString("Files"),
                     symbol = "\u2302",
                     onClick = onOpenWorkspace,
                     tonalContainerColor = Color.Transparent,
                     modifier = Modifier.size(48.dp),
                 )
                 HermexIconButton(
-                    label = "Git",
+                    label = localizedString("Git"),
                     symbol = "Git",
                     onClick = onOpenGit,
                     tonalContainerColor = Color.Transparent,
@@ -1325,7 +1414,7 @@ private fun ChatTopBar(
             }
         } else {
             HermexIconButton(
-                label = "Files",
+                label = localizedString("Files"),
                 symbol = "\u2302",
                 onClick = onOpenWorkspace,
                 modifier = Modifier.align(Alignment.CenterEnd),
@@ -1527,7 +1616,7 @@ private fun ChatTranscriptErrorState(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Could Not Load Messages",
+            localizedString("Could Not Load Messages"),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -1540,7 +1629,7 @@ private fun ChatTranscriptErrorState(
         )
         Spacer(Modifier.height(14.dp))
         HermexPillButton(
-            label = "Try Again",
+            label = localizedString("Try Again"),
             onClick = onRetry,
         )
     }
@@ -1564,7 +1653,7 @@ private fun ChatTranscriptEmptyState() {
         )
         Spacer(Modifier.height(18.dp))
         Text(
-            "Send a message to start the conversation.",
+            localizedString("Send a message to start the conversation."),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.secondary,
@@ -1720,6 +1809,8 @@ private fun SlashAutocompleteSurface(
 @Composable
 private fun ComposerSurface(
     state: ChatUiState,
+    isVoiceDictating: Boolean,
+    voiceDictationError: String?,
     streamingSendBehavior: StreamingSendBehavior,
     primaryActionTintColor: Color?,
     showSecondaryBar: Boolean,
@@ -1733,7 +1824,9 @@ private fun ComposerSurface(
     onOpenWorkspacePicker: () -> Unit,
     onLoadWorkspaceSuggestions: (String) -> Unit,
     onAttach: () -> Unit,
-    onVoice: () -> Unit,
+    onVoiceDictation: () -> Unit,
+    onVoiceNote: () -> Unit,
+    onStopVoiceNote: () -> Unit,
     onCancelVoice: () -> Unit,
     onRemoveAttachment: (UploadResponse) -> Unit,
     loadAttachmentImage: suspend (String) -> ByteArray?,
@@ -1777,10 +1870,12 @@ private fun ComposerSurface(
         when {
             state.isRecordingVoiceNote -> ComposerVoiceRecordingStatus(
                 startedAtMillis = state.voiceNoteStartedAtMillis,
-                onStop = onVoice,
+                onStop = onStopVoiceNote,
                 onCancel = onCancelVoice,
             )
             state.isTranscribingVoiceNote -> ComposerVoiceTranscribingStatus()
+            isVoiceDictating -> ComposerVoiceDictationStatus("Listening...", isError = false)
+            voiceDictationError != null -> ComposerVoiceDictationStatus(voiceDictationError, isError = true)
         }
         if (slashAutocompleteResult.isVisible) {
             SlashAutocompleteSurface(
@@ -1846,7 +1941,7 @@ private fun ComposerSurface(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ComposerInlineIconButton(
-                    label = "Attach",
+                    label = localizedString("Attach"),
                     iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_plus,
                     onClick = onAttach,
                     enabled = !state.isUploadingAttachment && !state.isStreaming && !state.isViewingCachedData,
@@ -1873,10 +1968,11 @@ private fun ComposerSurface(
                     )
                 }
                 ComposerInlineIconButton(
-                    label = "Voice",
+                    label = localizedString("Voice dictation. Long press to record a voice note."),
                     iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_mic,
-                    onClick = onVoice,
-                    enabled = !state.isStreaming && !state.isViewingCachedData && !state.isTranscribingVoiceNote && !state.isRunningSessionAction,
+                    onClick = onVoiceDictation,
+                    onLongClick = onVoiceNote,
+                    enabled = !state.isStreaming && !state.isViewingCachedData && !state.isRecordingVoiceNote && !state.isTranscribingVoiceNote && !state.isRunningSessionAction,
                 )
                 HermexIconButton(
                     label = if (state.isStreaming) "Stop" else "Send",
@@ -1910,7 +2006,7 @@ private fun ComposerSurface(
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
                     if (state.draft.trimStart().startsWith("/queue", ignoreCase = true)) {
-                        HermexPillButton("Queue", onSend, enabled = !state.isRunningSessionAction, filled = true)
+                        HermexPillButton(localizedString("Queue"), onSend, enabled = !state.isRunningSessionAction, filled = true)
                     }
                     HermexPillButton(
                         streamingSendBehavior.actionLabel,
@@ -1939,11 +2035,13 @@ private fun ComposerSurface(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ComposerInlineIconButton(
     label: String,
     iconRes: Int,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     enabled: Boolean,
 ) {
     Image(
@@ -1952,7 +2050,17 @@ private fun ComposerInlineIconButton(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick)
+            .then(
+                if (onLongClick == null) {
+                    Modifier.clickable(enabled = enabled, onClick = onClick)
+                } else {
+                    Modifier.combinedClickable(
+                        enabled = enabled,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                    )
+                },
+            )
             .padding(9.dp),
         colorFilter = ColorFilter.tint(
             MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.82f else 0.34f),
@@ -2000,15 +2108,15 @@ private fun ComposerVoiceRecordingStatus(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "Recording voice note",
+            localizedString("Recording voice note"),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        HermexPillButton("Cancel", onCancel, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp))
-        HermexPillButton("Use", onStop, filled = true, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp))
+        HermexPillButton(localizedString("Cancel"), onCancel, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp))
+        HermexPillButton(localizedString("Use"), onStop, filled = true, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp))
     }
 }
 
@@ -2029,15 +2137,35 @@ private fun ComposerVoiceTranscribingStatus() {
     ) {
         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
         Text(
-            "Transcribing voice note...",
+            localizedString("Sending voice note..."),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary,
         )
     }
 }
 
+@Composable
+private fun ComposerVoiceDictationStatus(text: String, isError: Boolean) {
+    Text(
+        text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+    )
+}
+
 private fun formatVoiceElapsed(totalSeconds: Int): String =
     "${totalSeconds / 60}:${(totalSeconds % 60).toString().padStart(2, '0')}"
+
+internal fun voiceDictationDraft(baseDraft: String, transcript: String): String {
+    val spoken = transcript.trim()
+    if (spoken.isEmpty()) return baseDraft
+    if (baseDraft.isBlank()) return spoken
+    val separator = if (baseDraft.last().isWhitespace()) "" else " "
+    return "$baseDraft$separator$spoken"
+}
 
 @Composable
 private fun ComposerSecondaryBar(
@@ -2152,13 +2280,13 @@ private fun ContextWindowDetailsSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Context Window",
+                    text = localizedString("Context Window"),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 TextButton(onClick = onDismiss) {
-                    Text("Done")
+                    Text(localizedString("Done"))
                 }
             }
             Text(
@@ -2213,7 +2341,7 @@ private fun AttachmentOptionsSheet(
             PickerSectionHeader("Attach")
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SelectorRow(
-                title = "Attach File",
+                title = localizedString("Attach File"),
                 subtitle = "Choose from documents",
                 selected = false,
                 onClick = onAttachFile,
@@ -2223,7 +2351,7 @@ private fun AttachmentOptionsSheet(
                 modifier = Modifier.padding(start = 52.dp),
             )
             SelectorRow(
-                title = "Photos",
+                title = localizedString("Photos"),
                 subtitle = "Choose images from your library",
                 selected = false,
                 onClick = onPhotos,
@@ -2302,7 +2430,7 @@ private fun ModelPickerDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
-                placeholder = { Text("Search models") },
+                placeholder = { Text(localizedString("Search models")) },
                 singleLine = true,
                 shape = HermexCardShape,
             )
@@ -2409,7 +2537,7 @@ private fun CustomModelEntry(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "Custom Model",
+            localizedString("Custom Model"),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.secondary,
             fontWeight = FontWeight.SemiBold,
@@ -2418,7 +2546,7 @@ private fun CustomModelEntry(
             value = modelId,
             onValueChange = onModelIdChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Exact model ID") },
+            placeholder = { Text(localizedString("Exact model ID")) },
             singleLine = true,
             shape = HermexCardShape,
         )
@@ -2426,7 +2554,7 @@ private fun CustomModelEntry(
             value = providerId,
             onValueChange = onProviderIdChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Provider ID") },
+            placeholder = { Text(localizedString("Provider ID")) },
             singleLine = true,
             shape = HermexCardShape,
         )
@@ -2452,7 +2580,7 @@ private fun CustomModelEntry(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HermexPillButton(
-                label = "Use Custom",
+                label = localizedString("Use Custom"),
                 onClick = { customOption?.let(onUseCustom) },
                 enabled = customOption != null,
                 filled = true,
@@ -2590,7 +2718,7 @@ private fun ModelOptionRow(
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
             ) {
                 Text(
-                    "Delete",
+                    localizedString("Delete"),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -2764,7 +2892,7 @@ private fun ReasoningPickerDialog(
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(efforts, key = { it }) { effort ->
                         SelectorRow(
-                            title = ReasoningEffortOption.titleFor(effort),
+                            title = localizedString(ReasoningEffortOption.titleFor(effort)),
                             subtitle = null,
                             selected = effort == selected,
                             onClick = { onSelect(effort) },
@@ -2834,12 +2962,12 @@ private fun WorkspacePickerDialog(
                         value = prefix,
                         onValueChange = { prefix = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Workspace path") },
+                        placeholder = { Text(localizedString("Workspace path")) },
                         singleLine = true,
                         shape = HermexCardShape,
                     )
                     Text(
-                        "Suggestions are limited to trusted workspace roots from the server.",
+                        localizedString("Suggestions are limited to trusted workspace roots from the server."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -2853,7 +2981,7 @@ private fun WorkspacePickerDialog(
                 }
                 item("current-workspace") {
                     SelectorRow(
-                        title = "Current Workspace",
+                        title = localizedString("Current Workspace"),
                         subtitle = effectiveSelected,
                         selected = true,
                         onClick = { selectWorkspace(effectiveSelected) },
@@ -2942,7 +3070,7 @@ private fun PickerSheet(
                     .padding(start = 16.dp, top = 10.dp, end = 8.dp, bottom = 8.dp),
             ) {
                 Text(
-                    title,
+                    localizedString(title),
                     modifier = Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -2953,7 +3081,7 @@ private fun PickerSheet(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterEnd),
                 ) {
-                    Text("Done")
+                    Text(localizedString("Done"))
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -2965,7 +3093,7 @@ private fun PickerSheet(
 @Composable
 private fun PickerSectionHeader(title: String) {
     Text(
-        title,
+        localizedString(title),
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 6.dp),
@@ -2978,7 +3106,7 @@ private fun PickerSectionHeader(title: String) {
 @Composable
 private fun EmptyPickerMessage(text: String) {
     Text(
-        text,
+        localizedString(text),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 24.dp),
@@ -3050,8 +3178,8 @@ private fun ApprovalCard(
             .hermexGlass(shape = HermexCardShape, castsShadow = false)
             .padding(12.dp),
     ) {
-        Text("Approval required", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        if (count > 1) Text("Pending approvals: $count", style = MaterialTheme.typography.bodySmall)
+        Text(localizedString("Approval required"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (count > 1) Text(localizedStringFormat("Pending approvals: %lld", count), style = MaterialTheme.typography.bodySmall)
         Text(
             approval.command ?: approval.description ?: "The agent wants to run an action.",
             style = MaterialTheme.typography.bodyMedium,
@@ -3064,13 +3192,13 @@ private fun ApprovalCard(
                 .padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HermexPillButton("Allow once", { onChoice(ApprovalChoice.Once) }, enabled = !isResponding, filled = true)
-            HermexPillButton("Session", { onChoice(ApprovalChoice.Session) }, enabled = !isResponding)
-            HermexPillButton("Always", { onChoice(ApprovalChoice.Always) }, enabled = !isResponding)
-            HermexPillButton("Deny", { onChoice(ApprovalChoice.Deny) }, enabled = !isResponding)
+            HermexPillButton(localizedString("Allow once"), { onChoice(ApprovalChoice.Once) }, enabled = !isResponding, filled = true)
+            HermexPillButton(localizedString("Session"), { onChoice(ApprovalChoice.Session) }, enabled = !isResponding)
+            HermexPillButton(localizedString("Always"), { onChoice(ApprovalChoice.Always) }, enabled = !isResponding)
+            HermexPillButton(localizedString("Deny"), { onChoice(ApprovalChoice.Deny) }, enabled = !isResponding)
         }
         HermexPillButton(
-            "Skip all this session",
+            localizedString("Skip all this session"),
             onSkipAll,
             enabled = !isResponding,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -3087,7 +3215,7 @@ private fun ApprovalBypassStatusPill() {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Approval bypass active", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+        Text(localizedString("Approval bypass active"), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -3107,8 +3235,8 @@ private fun ClarificationCard(
             .hermexGlass(shape = HermexCardShape, castsShadow = false)
             .padding(12.dp),
     ) {
-        Text("Clarification needed", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        if (count > 1) Text("Pending prompts: $count", style = MaterialTheme.typography.bodySmall)
+        Text(localizedString("Clarification needed"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (count > 1) Text(localizedStringFormat("Pending prompts: %lld", count), style = MaterialTheme.typography.bodySmall)
         Text(clarification.displayQuestion, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
         if (clarification.displayChoices.isNotEmpty()) {
             Row(
@@ -3127,14 +3255,14 @@ private fun ClarificationCard(
             value = draft,
             onValueChange = onDraftChange,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            placeholder = { Text("Response") },
+            placeholder = { Text(localizedString("Response")) },
             minLines = 1,
             maxLines = 4,
             enabled = !isResponding,
             shape = HermexCardShape,
         )
         HermexPillButton(
-            label = "Submit",
+            label = localizedString("Submit"),
             onClick = onSubmit,
             enabled = draft.isNotBlank() && !isResponding,
             filled = true,
@@ -3303,11 +3431,11 @@ private fun DiscardLaterMessagesDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Discard Later Messages?") },
+        title = { Text(localizedString("Discard Later Messages?")) },
         text = { Text(message) },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(localizedString("Cancel"))
             }
         },
         confirmButton = {
@@ -3325,16 +3453,46 @@ private fun ClearConversationDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Clear conversation") },
-        text = { Text("Clear all messages? This cannot be undone.") },
+        title = { Text(localizedString("Clear conversation")) },
+        text = { Text(localizedString("Clear all messages? This cannot be undone.")) },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(localizedString("Cancel"))
             }
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Clear", color = MaterialTheme.colorScheme.error)
+                Text(localizedString("Clear"), color = MaterialTheme.colorScheme.error)
+            }
+        },
+    )
+}
+
+@Composable
+private fun StartNewProfileSessionDialog(
+    profileTitle: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(localizedString("Start New Session?")) },
+        text = {
+            Text(
+                localizedStringFormat(
+                    "Switch to %@ and start a new session. This keeps the current transcript on its original profile.",
+                    profileTitle,
+                ),
+            )
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(localizedString("Cancel"))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(localizedString("Start New Session"))
             }
         },
     )
@@ -3395,10 +3553,10 @@ private fun EditMessageSheet(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.CenterStart),
                 ) {
-                    Text("Cancel")
+                    Text(localizedString("Cancel"))
                 }
                 Text(
-                    "Edit Message",
+                    localizedString("Edit Message"),
                     modifier = Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -3410,7 +3568,7 @@ private fun EditMessageSheet(
                     enabled = draft.trim().isNotEmpty(),
                     modifier = Modifier.align(Alignment.CenterEnd),
                 ) {
-                    Text("Send")
+                    Text(localizedString("Send"))
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -3600,7 +3758,7 @@ private fun TranscriptMediaThumbnailView(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Text("Load remote image", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Text(localizedString("Load remote image"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     "This contacts ${remoteHost ?: "an external server"}.",
                     style = MaterialTheme.typography.labelSmall,
@@ -3861,6 +4019,12 @@ private fun TranscriptLinkPreviewCard(
 ) {
     val context = LocalContext.current
     val shape = RoundedCornerShape(12.dp)
+    val metadata by produceState(LinkPreviewMetadata(), url) {
+        value = LinkPreviewMetadataProvider.metadata(url)
+    }
+    val previewBitmap = remember(metadata.imageBytes) {
+        metadata.imageBytes?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+    }
     Row(
         modifier = modifier
             .widthIn(max = 300.dp)
@@ -3876,6 +4040,17 @@ private fun TranscriptLinkPreviewCard(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        previewBitmap?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentScale = ContentScale.Crop,
+            )
+        }
         Box(
             modifier = Modifier
                 .width(3.dp)
@@ -3888,7 +4063,7 @@ private fun TranscriptLinkPreviewCard(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
-                url.host,
+                metadata.title ?: url.host,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
@@ -3896,7 +4071,7 @@ private fun TranscriptLinkPreviewCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                url.transcriptPreviewDisplayText(),
+                metadata.description ?: url.transcriptPreviewDisplayText(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -4089,7 +4264,7 @@ private fun ReasoningAccessoryCard(
                 colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.secondary),
             )
             Text(
-                "Thinking",
+                localizedString("Thinking"),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -4158,7 +4333,7 @@ private fun LiveToolActivityCard(
                 colorFilter = ColorFilter.tint(accentColor),
             )
             Text(
-                "Tool",
+                localizedString("Tool"),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -4171,7 +4346,7 @@ private fun LiveToolActivityCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            TranscriptStatusPill(text = "Running", color = accentColor)
+            TranscriptStatusPill(text = localizedString("Running"), color = accentColor)
             Text(
                 if (expanded) "\u2303" else "\u2304",
                 style = MaterialTheme.typography.labelSmall,
@@ -4180,7 +4355,7 @@ private fun LiveToolActivityCard(
             )
         }
         if (expanded) {
-            ToolDetailSection(title = "Activity", value = trimmed)
+            ToolDetailSection(title = localizedString("Activity"), value = trimmed)
         }
     }
 }
@@ -4273,7 +4448,7 @@ private fun GitTurnChangesCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "File changes",
+                localizedString("File changes"),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -4287,7 +4462,7 @@ private fun GitTurnChangesCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "Open diff",
+                localizedString("Open diff"),
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .clickable(onClick = onOpenAll)
@@ -4439,7 +4614,7 @@ private fun GitTurnDiffSheet(
                         )
                     }
                 }
-                TextButton(onClick = onDismiss) { Text("Done") }
+                TextButton(onClick = onDismiss) { Text(localizedString("Done")) }
             }
 
             if (files.size > 1) {
@@ -4470,11 +4645,11 @@ private fun GitTurnDiffSheet(
                         CircularProgressIndicator(strokeWidth = 2.dp)
                     }
                     error != null && diff == null -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        HermexPillButton("Try Again", onClick = { retryNonce++ })
+                        Text(localizedString(error.orEmpty()), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        HermexPillButton(localizedString("Try Again"), onClick = { retryNonce++ })
                     }
                     diff != null -> HermexGitDiffContent(requireNotNull(diff))
-                    else -> Text("No diff selected.", style = MaterialTheme.typography.bodySmall)
+                    else -> Text(localizedString("No diff selected."), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -4540,7 +4715,7 @@ private fun ToolActivityCard(
                 overflow = TextOverflow.Ellipsis,
             )
             if (hasFailure) {
-                TranscriptStatusPill(text = "Failed", color = accentColor)
+                TranscriptStatusPill(text = localizedString("Failed"), color = accentColor)
             }
             Text(
                 if (expanded) "\u2303" else "\u2304",
@@ -4639,15 +4814,15 @@ private fun TranscriptStatusPill(
 private fun ToolCallDetails(tool: ToolCall) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         if (!tool.preview.isNullOrBlank()) {
-            ToolDetailSection(title = "Preview", value = tool.preview)
+            ToolDetailSection(title = localizedString("Preview"), value = tool.preview)
         }
         val argsText = tool.args?.takeIf { it.isNotEmpty() }?.entries
             ?.joinToString("\n") { (key, value) -> "$key: ${value.toString().trim()}" }
         if (!argsText.isNullOrBlank()) {
-            ToolDetailSection(title = "Arguments", value = argsText)
+            ToolDetailSection(title = localizedString("Arguments"), value = argsText)
         }
         tool.result?.let { result ->
-            ToolDetailSection(title = "Result", value = result.toString().trim())
+            ToolDetailSection(title = localizedString("Result"), value = result.toString().trim())
         }
     }
 }
@@ -4659,7 +4834,7 @@ private fun ToolDetailSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(
-            title,
+            localizedString(title),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.secondary,
@@ -4809,18 +4984,18 @@ private fun MessageActionSheet(
         ) {
             if (context.role == MessageActionRole.Assistant) {
                 MessageActionSheetRow(
-                    title = "Listen",
+                    title = localizedString("Listen"),
                     symbol = "\u266a",
                     enabled = context.listenText?.isNotBlank() == true,
                     onClick = onListen,
                 )
                 MessageActionSheetRow(
-                    title = "Select Text",
+                    title = localizedString("Select Text"),
                     symbol = "T",
                     onClick = onSelectText,
                 )
                 MessageActionSheetRow(
-                    title = "Regenerate Response",
+                    title = localizedString("Regenerate Response"),
                     symbol = "\u21bb",
                     enabled = messageActionEnabled && !isRegeneratingMessage,
                     onClick = onRegenerate,
@@ -4828,20 +5003,20 @@ private fun MessageActionSheet(
             }
             if (context.role == MessageActionRole.User) {
                 MessageActionSheetRow(
-                    title = "Edit Message",
+                    title = localizedString("Edit Message"),
                     symbol = "\u270e",
                     enabled = messageActionEnabled && !isEditingMessage,
                     onClick = onEdit,
                 )
             }
             MessageActionSheetRow(
-                title = "Fork From Here",
+                title = localizedString("Fork From Here"),
                 symbol = "\u21b1",
                 enabled = messageActionEnabled && !isForkingMessage,
                 onClick = onFork,
             )
             MessageActionSheetRow(
-                title = "Copy",
+                title = localizedString("Copy"),
                 symbol = "\u2398",
                 onClick = onCopy,
             )
@@ -4875,7 +5050,7 @@ private fun MessageActionSheetRow(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                title,
+                localizedString(title),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Medium,
@@ -5248,7 +5423,7 @@ private fun AttachmentPreviewImage(
             )
             !didAttemptLoad -> CircularProgressIndicator(strokeWidth = 2.dp)
             else -> Text(
-                "Image preview could not be loaded.",
+                localizedString("Image preview could not be loaded."),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -5347,7 +5522,7 @@ private fun AttachmentTextPreview(
                 )
             }
         }
-        else -> AttachmentPreviewUnavailable("Preview is not available for this attachment.", path ?: "Unavailable")
+        else -> AttachmentPreviewUnavailable(localizedString("Preview is not available for this attachment."), path ?: "Unavailable")
     }
 }
 
@@ -5366,7 +5541,7 @@ private fun AttachmentPreviewUnavailable(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            "No Preview",
+            localizedString("No Preview"),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
@@ -5424,7 +5599,7 @@ private fun MessageAttachmentPreviewSheet(
                 )
             } else if (attachment.isKnownUnsupportedBinary) {
                 AttachmentPreviewUnavailable(
-                    message = "Preview is not available for this file type.",
+                    message = localizedString("Preview is not available for this file type."),
                     path = attachment.resolvedAttachmentPath ?: attachment.displayName,
                 )
             } else {

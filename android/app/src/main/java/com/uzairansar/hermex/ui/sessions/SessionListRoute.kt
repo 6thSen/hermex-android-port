@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color as AndroidColor
 import androidx.annotation.DrawableRes
 import androidx.activity.compose.BackHandler
@@ -68,10 +69,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,6 +93,7 @@ import com.uzairansar.hermex.core.model.ProfileSummary
 import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.data.repository.AuthState
 import com.uzairansar.hermex.ui.ShortcutDestination
+import com.uzairansar.hermex.ui.ProfileShortcutPublisher
 import com.uzairansar.hermex.ui.createExportDirectory
 import com.uzairansar.hermex.ui.theme.HermesHeaderLogo
 import com.uzairansar.hermex.ui.theme.HermexCardShape
@@ -109,6 +113,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToLong
+import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -157,7 +163,11 @@ fun SessionListRoute(
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var isCreatingProject by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val profileShortcutPublisher = remember(context) { ProfileShortcutPublisher(context) }
     val shareScope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val usesCompactFloatingAction = configuration.fontScale >= 1.3f ||
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val primaryActionTintColor = remember(state.tintPrimaryActionsWithThemeColor, headerLogoColorHex, state.isMutating) {
         if (primaryActionTintApplies(state.tintPrimaryActionsWithThemeColor, !state.isMutating)) {
             hermexColorFromHex(headerLogoColorHex)
@@ -174,6 +184,11 @@ fun SessionListRoute(
     LaunchedEffect(initialArchived) {
         if (initialArchived && !state.showArchived) {
             viewModel.toggleArchived()
+        }
+    }
+    LaunchedEffect(state.profileOptions, state.isLoadingProfiles) {
+        if (!state.isLoadingProfiles) {
+            profileShortcutPublisher.publish(state.profileOptions)
         }
     }
     val copySessionTitle: (SessionSummary) -> Unit = { session ->
@@ -272,7 +287,7 @@ fun SessionListRoute(
                 if (!state.showArchived && !searchExpanded) {
                     item {
                         Text(
-                            "Sessions",
+                            stringResource(R.string.sessions_title),
                             modifier = Modifier.padding(start = 8.dp, top = 22.dp, bottom = 10.dp),
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
@@ -336,6 +351,7 @@ fun SessionListRoute(
                 onClick = { viewModel.createSession(onCreated = onOpenChat) },
                 enabled = !state.isMutating,
                 tintColor = primaryActionTintColor,
+                compact = usesCompactFloatingAction,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
@@ -374,7 +390,7 @@ fun SessionListRoute(
                             else -> viewModel.createSession(onCreated = onOpenChat)
                         }
                     },
-                ) { Text("Continue") }
+                ) { Text(localizedString("Continue")) }
             },
             dismissButton = {
                 TextButton(
@@ -382,7 +398,7 @@ fun SessionListRoute(
                         pendingShortcutAction = null
                         shortcutConsumed = true
                     },
-                ) { Text("Cancel") }
+                ) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -392,13 +408,13 @@ fun SessionListRoute(
                 isCreatingProject = false
                 viewModel.dismissCreateProject()
             },
-            title = { Text("New Project") },
+            title = { Text(localizedString("New Project")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     OutlinedTextField(
                         value = state.newProjectName,
                         onValueChange = viewModel::updateNewProjectName,
-                        label = { Text("Project name") },
+                        label = { Text(localizedString("Project name")) },
                         singleLine = true,
                     )
                     ProjectColorPicker(
@@ -416,7 +432,7 @@ fun SessionListRoute(
                     },
                     enabled = state.newProjectName.isNotBlank() && !state.isMutating,
                 ) {
-                    Text("Create")
+                    Text(localizedString("Create"))
                 }
             },
             dismissButton = {
@@ -426,7 +442,7 @@ fun SessionListRoute(
                         viewModel.dismissCreateProject()
                     },
                 ) {
-                    Text("Cancel")
+                    Text(localizedString("Cancel"))
                 }
             },
         )
@@ -515,7 +531,7 @@ private fun SessionSearchChrome(
             ) {
                 if (query.isBlank()) {
                     Text(
-                        "Search sessions",
+                        stringResource(R.string.search_sessions),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.secondary,
                         maxLines = 1,
@@ -535,18 +551,18 @@ private fun SessionSearchChrome(
                 )
             }
             if (query.isNotBlank()) {
-                HermexIconButton("Clear", "x", onClear, tonalContainerColor = Color.Transparent)
+                HermexIconButton(localizedString("Clear"), "x", onClear, tonalContainerColor = Color.Transparent)
             }
         } else {
             HermexIconButton(
-                label = "Search sessions",
+                label = stringResource(R.string.search_sessions),
                 symbol = "⌕",
                 onClick = { onExpandedChange(true) },
                 tonalContainerColor = Color.Transparent,
             )
         }
         HermexIconButton(
-            label = if (expanded) "Close search" else "Settings",
+            label = if (expanded) stringResource(R.string.close_search) else stringResource(R.string.settings_title),
             symbol = if (expanded) "x" else avatarInitials,
             onClick = {
                 if (expanded) {
@@ -570,6 +586,7 @@ private fun NewChatFloatingButton(
     onClick: () -> Unit,
     enabled: Boolean,
     tintColor: Color?,
+    compact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     TextButton(
@@ -577,11 +594,15 @@ private fun NewChatFloatingButton(
         enabled = enabled,
         modifier = modifier
             .height(58.dp)
+            .then(if (compact) Modifier.width(58.dp) else Modifier)
             .clip(CircleShape)
             .background(hermexPrimaryActionContainerColor(enabled, tintColor)),
         shape = CircleShape,
         colors = ButtonDefaults.textButtonColors(contentColor = hermexPrimaryActionContentColor(enabled, tintColor)),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 22.dp, vertical = 0.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = if (compact) 0.dp else 22.dp,
+            vertical = 0.dp,
+        ),
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -589,11 +610,13 @@ private fun NewChatFloatingButton(
         ) {
             Image(
                 painter = painterResource(R.drawable.ic_hermex_square_and_pencil),
-                contentDescription = null,
+                contentDescription = if (compact) stringResource(R.string.new_chat) else null,
                 modifier = Modifier.size(22.dp),
                 colorFilter = ColorFilter.tint(hermexPrimaryActionContentColor(enabled, tintColor)),
             )
-            Text("Chat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (!compact) {
+                Text(localizedString("Chat"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
@@ -602,16 +625,28 @@ private fun NewChatFloatingButton(
 private fun UtilityRows(
     onOpenPanel: (String) -> Unit,
 ) {
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        UtilityRow("Tasks", R.drawable.ic_lucide_calendar_clock, "tasks", onOpenPanel)
-        UtilityRow("Skills", R.drawable.ic_lucide_hammer, "skills", onOpenPanel)
-        UtilityRow("Memory", R.drawable.ic_lucide_brain, "memory", onOpenPanel)
-        UtilityRow("Insights", R.drawable.ic_lucide_chart_column_increasing, "insights", onOpenPanel)
+        if (isLandscape) {
+            Row(Modifier.fillMaxWidth()) {
+                UtilityRow(stringResource(R.string.nav_tasks), R.drawable.ic_lucide_calendar_clock, "tasks", onOpenPanel, Modifier.weight(1f))
+                UtilityRow(stringResource(R.string.nav_skills), R.drawable.ic_lucide_hammer, "skills", onOpenPanel, Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth()) {
+                UtilityRow(stringResource(R.string.nav_memory), R.drawable.ic_lucide_brain, "memory", onOpenPanel, Modifier.weight(1f))
+                UtilityRow(stringResource(R.string.nav_insights), R.drawable.ic_lucide_chart_column_increasing, "insights", onOpenPanel, Modifier.weight(1f))
+            }
+        } else {
+            UtilityRow(stringResource(R.string.nav_tasks), R.drawable.ic_lucide_calendar_clock, "tasks", onOpenPanel)
+            UtilityRow(stringResource(R.string.nav_skills), R.drawable.ic_lucide_hammer, "skills", onOpenPanel)
+            UtilityRow(stringResource(R.string.nav_memory), R.drawable.ic_lucide_brain, "memory", onOpenPanel)
+            UtilityRow(stringResource(R.string.nav_insights), R.drawable.ic_lucide_chart_column_increasing, "insights", onOpenPanel)
+        }
     }
 }
 
@@ -643,7 +678,7 @@ private fun ActiveProfileSection(
                 tint = if (state.profileError == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.tertiary,
             )
             Text(
-                "Active Profile",
+                stringResource(R.string.nav_active_profile),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
@@ -768,9 +803,10 @@ private fun UtilityRow(
     @DrawableRes iconRes: Int,
     destination: String,
     onOpenPanel: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(HermexCardShape)
             .clickable { onOpenPanel(destination) }
@@ -822,7 +858,7 @@ private fun SearchRow(
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            placeholder = { Text("Search sessions") },
+            placeholder = { Text(stringResource(R.string.search_sessions)) },
             modifier = Modifier.weight(1f),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -835,9 +871,9 @@ private fun SearchRow(
             ),
             shape = HermexGlassShape,
         )
-        HermexIconButton("Go", "⌕", onSearch, enabled = !isLoading)
+        HermexIconButton(localizedString("Go"), "⌕", onSearch, enabled = !isLoading)
         if (query.isNotBlank()) {
-            HermexIconButton("Clear", "×", onClear)
+            HermexIconButton(localizedString("Clear"), "×", onClear)
         }
     }
 }
@@ -857,14 +893,17 @@ private fun ArchivedModeRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Archived Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.archived_sessions_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "$count archived session${if (count == 1) "" else "s"}",
+                localizedStringFormat(
+                    if (count == 1) "%lld archived session" else "%lld archived sessions",
+                    count,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
         }
-        HermexPillButton("Done", onClose)
+        HermexPillButton(localizedString("Done"), onClose)
     }
 }
 
@@ -907,7 +946,7 @@ private fun ProjectSection(
             ) {
                 SidebarUtilityIcon(iconRes = R.drawable.ic_lucide_folder)
                 Text(
-                    "Projects",
+                    stringResource(R.string.nav_projects),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
@@ -921,7 +960,7 @@ private fun ProjectSection(
             }
             if (expanded) {
                 HermexIconButton(
-                    label = "Add project",
+                    label = localizedString("Add project"),
                     symbol = "+",
                     onClick = onAddProject,
                     enabled = !isViewingCachedData && !isMutating,
@@ -931,7 +970,7 @@ private fun ProjectSection(
             }
             if (selectedProjectId != null) {
                 HermexPillButton(
-                    label = "All",
+                    label = localizedString("All"),
                     onClick = { onSelectProject(null) },
                     enabled = !isMutating,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -1063,8 +1102,8 @@ private fun ProjectFilterSubrow(
                     .padding(start = 64.dp, top = 4.dp, bottom = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                HermexPillButton("Rename", onRename, enabled = actionsEnabled)
-                HermexPillButton("Delete", onDelete, enabled = actionsEnabled)
+                HermexPillButton(localizedString("Rename"), onRename, enabled = actionsEnabled)
+                HermexPillButton(localizedString("Delete"), onDelete, enabled = actionsEnabled)
             }
         }
     }
@@ -1083,7 +1122,7 @@ private fun ProjectColorPicker(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Color",
+                localizedString("Color"),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
@@ -1209,9 +1248,9 @@ private fun EmptySessionsRow() {
             .padding(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("No sessions match this view.", style = MaterialTheme.typography.titleMedium)
+        Text(localizedString("No sessions match this view."), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Create a new chat or clear search filters.",
+            localizedString("Create a new chat or clear search filters."),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.padding(top = 4.dp),
@@ -1304,8 +1343,8 @@ private fun SessionRow(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (session.isActiveStreaming) SessionStateBadge("Live", Color(0xFF34C759))
-                        if (isViewingCachedData) SessionStateBadge("Cached", Color(0xFFFF9500))
+                        if (session.isActiveStreaming) SessionStateBadge(localizedString("Live"), Color(0xFF34C759))
+                        if (isViewingCachedData) SessionStateBadge(localizedString("Cached"), Color(0xFFFF9500))
                         metadata?.let {
                             Text(
                                 text = it,
@@ -1330,16 +1369,16 @@ private fun SessionRow(
             ) {
                 if (session.archived == true) MiniBadge("Archived")
                 if (session.isActiveStreaming) MiniBadge("Streaming", tint = MaterialTheme.colorScheme.primary)
-                HermexPillButton("Copy Full Title", onCopyTitle, enabled = true)
+                HermexPillButton(localizedString("Copy Full Title"), onCopyTitle, enabled = true)
                 HermexPillButton(if (session.pinned == true) "Unpin" else "Pin", onPin, enabled = !isMutating)
                 HermexPillButton(if (session.archived == true) "Restore" else "Archive", onArchive, enabled = !isMutating)
-                HermexPillButton("Rename", onRename, enabled = !isMutating)
-                HermexPillButton("Branch", onBranch, enabled = !isMutating)
-                HermexPillButton("Duplicate", onDuplicate, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
-                HermexPillButton("Export HTML", { onExport(SessionExportFormat.Html) }, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
-                HermexPillButton("Export JSON", { onExport(SessionExportFormat.Json) }, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
-                HermexPillButton("Delete", onDelete, enabled = !isMutating)
-                HermexPillButton("No project", { onMove(null) }, enabled = !isMutating && session.projectId != null)
+                HermexPillButton(localizedString("Rename"), onRename, enabled = !isMutating)
+                HermexPillButton(localizedString("Branch"), onBranch, enabled = !isMutating)
+                HermexPillButton(localizedString("Duplicate"), onDuplicate, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
+                HermexPillButton(localizedString("Export HTML"), { onExport(SessionExportFormat.Html) }, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
+                HermexPillButton(localizedString("Export JSON"), { onExport(SessionExportFormat.Json) }, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
+                HermexPillButton(localizedString("Delete"), onDelete, enabled = !isMutating)
+                HermexPillButton(localizedString("No project"), { onMove(null) }, enabled = !isMutating && session.projectId != null)
                 projects.forEach { project ->
                     val projectId = project.projectId
                     HermexPillButton(
@@ -1377,7 +1416,7 @@ private fun SessionSwipeContainer(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SwipeAction(
-                    label = "Delete",
+                    label = localizedString("Delete"),
                     symbol = "⌫",
                     color = Color(0xFFFF3B30),
                     onClick = {
@@ -1438,7 +1477,7 @@ private fun SwipeAction(
         ) {
             Text(symbol, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+        Text(localizedString(label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
     }
 }
 
@@ -1448,7 +1487,7 @@ private fun SessionStateBadge(
     tint: Color,
 ) {
     Text(
-        label,
+        localizedString(label),
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = tint,
@@ -1484,20 +1523,20 @@ private fun SessionDialogs(
     state.renameSession?.let {
         AlertDialog(
             onDismissRequest = viewModel::dismissRename,
-            title = { Text("Rename Session") },
+            title = { Text(localizedString("Rename Session")) },
             text = {
                 OutlinedTextField(
                     value = state.renameDraft,
                     onValueChange = viewModel::updateRenameDraft,
-                    label = { Text("Title") },
+                    label = { Text(localizedString("Title")) },
                     singleLine = true,
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmRename, enabled = !state.isMutating && state.renameDraft.isNotBlank()) { Text("Rename") }
+                TextButton(onClick = viewModel::confirmRename, enabled = !state.isMutating && state.renameDraft.isNotBlank()) { Text(localizedString("Rename")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissRename) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissRename) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -1505,13 +1544,13 @@ private fun SessionDialogs(
     state.deleteSession?.let { session ->
         AlertDialog(
             onDismissRequest = viewModel::dismissDelete,
-            title = { Text("Delete Session?") },
+            title = { Text(localizedString("Delete Session?")) },
             text = { Text("Delete ${session.title ?: "this session"}? This cannot be undone.") },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmDelete, enabled = !state.isMutating) { Text("Delete") }
+                TextButton(onClick = viewModel::confirmDelete, enabled = !state.isMutating) { Text(localizedString("Delete")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDelete) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissDelete) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -1519,20 +1558,20 @@ private fun SessionDialogs(
     state.branchSession?.let {
         AlertDialog(
             onDismissRequest = viewModel::dismissBranch,
-            title = { Text("Branch Session") },
+            title = { Text(localizedString("Branch Session")) },
             text = {
                 OutlinedTextField(
                     value = state.branchTitleDraft,
                     onValueChange = viewModel::updateBranchTitleDraft,
-                    label = { Text("Optional title") },
+                    label = { Text(localizedString("Optional title")) },
                     singleLine = true,
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.confirmBranch(onOpenChat) }, enabled = !state.isMutating) { Text("Branch") }
+                TextButton(onClick = { viewModel.confirmBranch(onOpenChat) }, enabled = !state.isMutating) { Text(localizedString("Branch")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissBranch) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissBranch) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -1540,13 +1579,13 @@ private fun SessionDialogs(
     state.renameProject?.let {
         AlertDialog(
             onDismissRequest = viewModel::dismissRenameProject,
-            title = { Text("Rename Project") },
+            title = { Text(localizedString("Rename Project")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     OutlinedTextField(
                         value = state.renameProjectDraft,
                         onValueChange = viewModel::updateRenameProjectDraft,
-                        label = { Text("Project name") },
+                        label = { Text(localizedString("Project name")) },
                         singleLine = true,
                     )
                     ProjectColorPicker(
@@ -1557,10 +1596,10 @@ private fun SessionDialogs(
                 }
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmRenameProject, enabled = !state.isMutating && state.renameProjectDraft.isNotBlank()) { Text("Rename") }
+                TextButton(onClick = viewModel::confirmRenameProject, enabled = !state.isMutating && state.renameProjectDraft.isNotBlank()) { Text(localizedString("Rename")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissRenameProject) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissRenameProject) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -1568,13 +1607,13 @@ private fun SessionDialogs(
     state.deleteProject?.let { project ->
         AlertDialog(
             onDismissRequest = viewModel::dismissDeleteProject,
-            title = { Text("Delete Project?") },
+            title = { Text(localizedString("Delete Project?")) },
             text = { Text("Sessions in ${project.displayName} will move to No project. The sessions themselves will not be deleted.") },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmDeleteProject, enabled = !state.isMutating) { Text("Delete") }
+                TextButton(onClick = viewModel::confirmDeleteProject, enabled = !state.isMutating) { Text(localizedString("Delete")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDeleteProject) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissDeleteProject) { Text(localizedString("Cancel")) }
             },
         )
     }

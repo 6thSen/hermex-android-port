@@ -62,6 +62,37 @@ object WorkspaceFilePreviewPolicy {
 
     fun shouldLoadRawPreview(path: String?): Boolean = isRasterImage(path)
 
+    fun badgeLabel(path: String?, isDirectory: Boolean = false): String {
+        if (isDirectory) return "DIR"
+        return when (val extension = extension(path)) {
+            "json" -> "JSON"
+            "md", "markdown" -> "MD"
+            "pdf" -> "PDF"
+            "zip", "tar", "gz", "tgz", "7z", "rar" -> "ZIP"
+            "png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "svg" -> "IMG"
+            "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus" -> "AUD"
+            "mp4", "mov", "m4v", "webm", "mkv", "avi" -> "VID"
+            "kt", "kts", "swift", "java", "js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "c", "h", "cpp", "cs" -> "CODE"
+            "html", "htm", "css", "xml", "yaml", "yml" -> "DOC"
+            "txt", "log" -> "TXT"
+            else -> extension.uppercase().take(4).ifBlank { "FILE" }
+        }
+    }
+
+    fun kindLabel(path: String?, isDirectory: Boolean = false): String {
+        if (isDirectory) return "Folder"
+        return when (badgeLabel(path)) {
+            "IMG" -> "Image"
+            "AUD" -> "Audio"
+            "VID" -> "Video"
+            "ZIP" -> "Archive"
+            "CODE" -> "Source code"
+            "DOC" -> "Document"
+            "FILE" -> "File"
+            else -> badgeLabel(path)
+        }
+    }
+
     fun mimeType(path: String?, isText: Boolean = false): String =
         if (isText) {
             "text/plain"

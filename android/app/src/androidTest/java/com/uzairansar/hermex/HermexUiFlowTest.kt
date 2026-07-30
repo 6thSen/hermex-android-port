@@ -401,6 +401,88 @@ class HermexUiFlowTest {
     }
 
     @Test
+    fun existingConversationProfileChangeConfirmsAndCreatesNewSession() {
+        var switchBody = ""
+        var newSessionBody = ""
+        val mockServer = MockWebServer().also { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.url.encodedPath) {
+                    "/api/session" -> json(
+                        """
+                        {
+                          "session": {
+                            "session_id": "s1",
+                            "title": "Existing chat",
+                            "workspace": "/workspace/hermex",
+                            "model": "gpt-5",
+                            "model_provider": "openai",
+                            "profile": "default",
+                            "messages": [
+                              {"role":"user","content":"Keep this history"},
+                              {"role":"assistant","content":"History stays here"}
+                            ]
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    "/api/models" -> json("""{"models":[{"id":"gpt-5","label":"GPT-5","provider":"openai"}]}""")
+                    "/api/profiles" -> json(
+                        """{"active":"default","profiles":[{"name":"default","display_name":"Default"},{"name":"review","display_name":"Review"}]}""",
+                    )
+                    "/api/workspaces" -> json(
+                        """{"last":"/workspace/hermex","workspaces":[{"path":"/workspace/hermex","name":"Hermex"}]}""",
+                    )
+                    "/api/reasoning" -> json("""{"effort":"medium","supported_efforts":["medium"]}""")
+                    "/api/commands" -> json("""{"commands":[]}""")
+                    "/api/skills" -> json("""{"skills":[]}""")
+                    "/api/approval/pending", "/api/clarify/pending" -> json("{}")
+                    "/api/profile/switch" -> {
+                        switchBody = request.body?.utf8().orEmpty()
+                        json(
+                            """{"active":"review","default_model":"gpt-5","default_workspace":"/workspace/hermex","profiles":[{"name":"default","display_name":"Default"},{"name":"review","display_name":"Review"}]}""",
+                        )
+                    }
+                    "/api/session/new" -> {
+                        newSessionBody = request.body?.utf8().orEmpty()
+                        json("""{"session":{"session_id":"s-review","profile":"review"}}""")
+                    }
+                    else -> MockResponse.Builder().code(404).body("""{"error":"unexpected"}""").build()
+                }
+            }
+            server.start()
+            this.server = server
+        }
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val container = AppContainer(application)
+        var openedChat: String? = null
+
+        composeRule.setContent {
+            HermexTheme {
+                ChatRoute(
+                    sessionId = "s1",
+                    repository = container.chatRepository(mockServer.url("/")),
+                    onOpenChat = { openedChat = it },
+                    onBack = {},
+                    onOpenWorkspace = {},
+                    onOpenGit = {},
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("History stays here") && hasText("Default") }
+        composeRule.onNodeWithText("Default").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Choose Profile") }
+        composeRule.onNodeWithText("Review").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Start New Session?") }
+        assertTrue(switchBody.isBlank())
+        composeRule.onNodeWithText("Start New Session").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { openedChat == "s-review" }
+        assertTrue(switchBody.contains(""""name":"review""""))
+        assertTrue(newSessionBody.contains(""""profile":"review""""))
+    }
+
+    @Test
     fun chatRouteSendsMessageAndRendersAssistantTurn() {
         val chatStarted = AtomicBoolean(false)
         var chatStartBody = ""

@@ -51,6 +51,7 @@ import com.uzairansar.hermex.ui.theme.HermexPillButton
 import com.uzairansar.hermex.ui.theme.HermexSurfaceLevel
 import com.uzairansar.hermex.ui.theme.hermexGlass
 import com.uzairansar.hermex.ui.theme.hermexHairline
+import com.uzairansar.hermex.ui.localization.localizedString
 
 @Composable
 fun GitRoute(
@@ -133,7 +134,7 @@ fun GitRoute(
                     }
                     if (state.files.size > MAX_RENDERED_GIT_FILES) {
                         Text(
-                            "Showing the first $MAX_RENDERED_GIT_FILES changed files.",
+                            localizedString("Showing the first 500 changed files."),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )
@@ -190,12 +191,12 @@ private fun GitHeader(
             .padding(bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        HermexIconButton("Back", "‹", onBack)
+        HermexIconButton(localizedString("Back"), "‹", onBack)
         Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Git", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(localizedString("Git"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(branch ?: "Repository workspace", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1)
         }
-        HermexIconButton("Refresh", "↻", onRefresh)
+        HermexIconButton(localizedString("Refresh"), "↻", onRefresh)
     }
 }
 
@@ -212,17 +213,17 @@ private fun RemoteActionsBar(
             .padding(bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        HermexPillButton("Fetch", onFetch, enabled = enabled, modifier = Modifier.weight(1f))
-        HermexPillButton("Pull", onPull, enabled = enabled, modifier = Modifier.weight(1f))
-        HermexPillButton("Push", onPush, enabled = enabled, modifier = Modifier.weight(1f))
+        HermexPillButton(localizedString("Fetch"), onFetch, enabled = enabled, modifier = Modifier.weight(1f))
+        HermexPillButton(localizedString("Pull"), onPull, enabled = enabled, modifier = Modifier.weight(1f))
+        HermexPillButton(localizedString("Push"), onPush, enabled = enabled, modifier = Modifier.weight(1f))
     }
 }
 
 @Composable
 private fun StatusLines(notice: String?, error: String?) {
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        notice?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        notice?.let { Text(localizedString(it), color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall) }
+        error?.let { Text(localizedString(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -243,8 +244,8 @@ private fun CleanTreeCard() {
             Text("✓", color = Color(0xFF34C759), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         Column {
-            Text("Working tree clean", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("No changed files in this session workspace.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Text(localizedString("Working tree clean"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(localizedString("No changed files in this session workspace."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
     }
 }
@@ -281,7 +282,7 @@ private fun GitSummaryCard(
         }
         if (truncated) {
             Spacer(Modifier.height(8.dp))
-            Text("Showing first 500 changed files.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Text(localizedString("Showing first 500 changed files."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
     }
 }
@@ -310,11 +311,11 @@ private fun BatchActionsBar(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.secondary,
         )
-        HermexPillButton("Stage", onStage, enabled = enabled && totalCount > 0)
-        HermexPillButton("Unstage", onUnstage, enabled = enabled && totalCount > 0)
-        HermexPillButton("Discard", onDiscard, enabled = enabled && totalCount > 0)
+        HermexPillButton(localizedString("Stage"), onStage, enabled = enabled && totalCount > 0)
+        HermexPillButton(localizedString("Unstage"), onUnstage, enabled = enabled && totalCount > 0)
+        HermexPillButton(localizedString("Discard"), onDiscard, enabled = enabled && totalCount > 0)
         if (selectedCount > 0) {
-            HermexPillButton("Clear", onClear, enabled = enabled)
+            HermexPillButton(localizedString("Clear"), onClear, enabled = enabled)
         }
     }
 }
@@ -330,7 +331,7 @@ private fun BranchesSection(
 ) {
     SectionSurface("Branches") {
         if (branches.isEmpty()) {
-            Text("Branch list unavailable.", style = MaterialTheme.typography.bodySmall)
+            Text(localizedString("Branch list unavailable."), style = MaterialTheme.typography.bodySmall)
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -366,7 +367,7 @@ private fun BranchesSection(
             enabled = enabled,
         )
         Spacer(Modifier.height(8.dp))
-        HermexPillButton("Create and switch", onCreateBranch, enabled = enabled && newBranchName.isNotBlank(), filled = true)
+        HermexPillButton(localizedString("Create and switch"), onCreateBranch, enabled = enabled && newBranchName.isNotBlank(), filled = true)
     }
 }
 
@@ -384,9 +385,9 @@ private fun DiffSection(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HermexPillButton("Stage", onStage, enabled = canAct)
-            HermexPillButton("Unstage", onUnstage, enabled = canAct)
-            HermexPillButton("Discard", onDiscard, enabled = canAct)
+            HermexPillButton(localizedString("Stage"), onStage, enabled = canAct)
+            HermexPillButton(localizedString("Unstage"), onUnstage, enabled = canAct)
+            HermexPillButton(localizedString("Discard"), onDiscard, enabled = canAct)
         }
         Spacer(Modifier.height(8.dp))
         HermexGitDiffContent(diff)
@@ -422,8 +423,8 @@ private fun CommitSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Push after commit", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text("Send the new commit to the upstream remote.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                Text(localizedString("Push after commit"), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(localizedString("Send the new commit to the upstream remote."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
             }
             Switch(
                 checked = pushAfterCommit,
@@ -432,16 +433,16 @@ private fun CommitSection(
             )
         }
         if (messageWasTruncated) {
-            Text("Diff was large; message may be partial.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Text(localizedString("Diff was large; message may be partial."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
             Spacer(Modifier.height(6.dp))
         }
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HermexPillButton("Generate", onGenerate, enabled = enabled)
+            HermexPillButton(localizedString("Generate"), onGenerate, enabled = enabled)
             if (selectedCount > 0) {
-                HermexPillButton("Commit selected", onCommitSelected, enabled = enabled && message.isNotBlank(), filled = false)
+                HermexPillButton(localizedString("Commit selected"), onCommitSelected, enabled = enabled && message.isNotBlank(), filled = false)
             }
             HermexPillButton(
                 if (pushAfterCommit) "Commit & Push" else "Commit",
@@ -579,35 +580,35 @@ private fun GitDialogs(state: GitUiState, viewModel: GitViewModel) {
     state.pendingCheckout?.let { target ->
         AlertDialog(
             onDismissRequest = viewModel::dismissCheckoutConfirm,
-            title = { Text("Switch branch?") },
+            title = { Text(localizedString("Switch branch?")) },
             text = { Text("Switch to ${target.displayName}? Uncommitted changes will be checked before the branch changes.") },
-            confirmButton = { TextButton(onClick = viewModel::confirmCheckout, enabled = !state.isMutating) { Text("Switch") } },
-            dismissButton = { TextButton(onClick = viewModel::dismissCheckoutConfirm) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = viewModel::confirmCheckout, enabled = !state.isMutating) { Text(localizedString("Switch")) } },
+            dismissButton = { TextButton(onClick = viewModel::dismissCheckoutConfirm) { Text(localizedString("Cancel")) } },
         )
     }
     state.pendingDirtyCheckout?.let { target ->
         AlertDialog(
             onDismissRequest = viewModel::dismissCheckoutConfirm,
-            title = { Text("Save changes and switch?") },
+            title = { Text(localizedString("Save changes and switch?")) },
             text = { Text("This workspace has uncommitted changes. Save them temporarily, switch to ${target.displayName}, then restore them on the destination branch.") },
-            confirmButton = { TextButton(onClick = viewModel::confirmDirtyCheckout, enabled = !state.isMutating) { Text("Save and switch") } },
-            dismissButton = { TextButton(onClick = viewModel::dismissCheckoutConfirm) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = viewModel::confirmDirtyCheckout, enabled = !state.isMutating) { Text(localizedString("Save and switch")) } },
+            dismissButton = { TextButton(onClick = viewModel::dismissCheckoutConfirm) { Text(localizedString("Cancel")) } },
         )
     }
     if (state.showPushConfirm) {
         AlertDialog(
             onDismissRequest = viewModel::dismissPushConfirm,
-            title = { Text("Push branch?") },
-            text = { Text("Push the current branch to its configured upstream remote?") },
-            confirmButton = { TextButton(onClick = viewModel::confirmPush, enabled = !state.isMutating) { Text("Push") } },
-            dismissButton = { TextButton(onClick = viewModel::dismissPushConfirm) { Text("Cancel") } },
+            title = { Text(localizedString("Push branch?")) },
+            text = { Text(localizedString("Push the current branch to its configured upstream remote?")) },
+            confirmButton = { TextButton(onClick = viewModel::confirmPush, enabled = !state.isMutating) { Text(localizedString("Push")) } },
+            dismissButton = { TextButton(onClick = viewModel::dismissPushConfirm) { Text(localizedString("Cancel")) } },
         )
     }
     if (state.showDiscardConfirm) {
         val count = state.pendingDiscardPaths.size
         AlertDialog(
             onDismissRequest = viewModel::dismissDiscardConfirm,
-            title = { Text("Discard changes?") },
+            title = { Text(localizedString("Discard changes?")) },
             text = {
                 Text(
                     if (state.pendingDiscardDeletesFiles) {
@@ -617,8 +618,8 @@ private fun GitDialogs(state: GitUiState, viewModel: GitViewModel) {
                     },
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::confirmDiscardSelected, enabled = !state.isMutating) { Text("Discard") } },
-            dismissButton = { TextButton(onClick = viewModel::dismissDiscardConfirm) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = viewModel::confirmDiscardSelected, enabled = !state.isMutating) { Text(localizedString("Discard")) } },
+            dismissButton = { TextButton(onClick = viewModel::dismissDiscardConfirm) { Text(localizedString("Cancel")) } },
         )
     }
 }

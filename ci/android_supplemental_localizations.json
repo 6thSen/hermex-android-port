@@ -1,0 +1,84 @@
+{
+  "%lld archived session": {
+    "en": "%lld archived session", "ar": "%lld جلسة مؤرشفة", "de": "%lld archivierte Sitzung", "es": "%lld sesión archivada", "fr": "%lld session archivée", "he": "%lld הפעלה בארכיון", "it": "%lld sessione archiviata", "ja": "%lld 件のアーカイブ済みセッション", "ko": "%lld개의 보관된 세션", "nl": "%lld gearchiveerde sessie", "pl": "%lld zarchiwizowana sesja", "pt-BR": "%lld sessão arquivada", "ru": "%lld архивный сеанс", "tr": "%lld arşivlenmiş oturum", "ur": "%lld محفوظ شدہ سیشن", "zh-HK": "%lld 個已封存工作階段", "zh-Hans": "%lld 个已归档会话", "zh-Hant": "%lld 個已封存工作階段"
+  },
+  "%lld archived sessions": {
+    "en": "%lld archived sessions", "ar": "%lld جلسات مؤرشفة", "de": "%lld archivierte Sitzungen", "es": "%lld sesiones archivadas", "fr": "%lld sessions archivées", "he": "%lld הפעלות בארכיון", "it": "%lld sessioni archiviate", "ja": "%lld 件のアーカイブ済みセッション", "ko": "%lld개의 보관된 세션", "nl": "%lld gearchiveerde sessies", "pl": "%lld zarchiwizowane sesje", "pt-BR": "%lld sessões arquivadas", "ru": "%lld архивных сеансов", "tr": "%lld arşivlenmiş oturum", "ur": "%lld محفوظ شدہ سیشنز", "zh-HK": "%lld 個已封存工作階段", "zh-Hans": "%lld 个已归档会话", "zh-Hant": "%lld 個已封存工作階段"
+  },
+  "Always": {
+    "en": "Always", "ar": "دائمًا", "de": "Immer", "es": "Siempre", "fr": "Toujours", "he": "תמיד", "it": "Sempre", "ja": "常に", "ko": "항상", "nl": "Altijd", "pl": "Zawsze", "pt-BR": "Sempre", "ru": "Всегда", "tr": "Her zaman", "ur": "ہمیشہ", "zh-HK": "永遠", "zh-Hans": "始终", "zh-Hant": "永遠"
+  },
+  "Back": {
+    "en": "Back", "ar": "رجوع", "de": "Zurück", "es": "Atrás", "fr": "Retour", "he": "חזרה", "it": "Indietro", "ja": "戻る", "ko": "뒤로", "nl": "Terug", "pl": "Wstecz", "pt-BR": "Voltar", "ru": "Назад", "tr": "Geri", "ur": "واپس", "zh-HK": "返回", "zh-Hans": "返回", "zh-Hant": "返回"
+  },
+  "Commit selected": {
+    "en": "Commit selected", "ar": "تثبيت المحدد", "de": "Auswahl committen", "es": "Confirmar selección", "fr": "Valider la sélection", "he": "בצע Commit לנבחרים", "it": "Crea commit selezionato", "ja": "選択項目をコミット", "ko": "선택 항목 커밋", "nl": "Selectie committen", "pl": "Zatwierdź wybrane", "pt-BR": "Commitar selecionados", "ru": "Зафиксировать выбранное", "tr": "Seçilenleri işle", "ur": "منتخب کو کمٹ کریں", "zh-HK": "提交所選項目", "zh-Hans": "提交所选项", "zh-Hant": "提交所選項目"
+  },
+  "Context Window": {
+    "en": "Context Window", "ar": "نافذة السياق", "de": "Kontextfenster", "es": "Ventana de contexto", "fr": "Fenêtre de contexte", "he": "חלון הקשר", "it": "Finestra di contesto", "ja": "コンテキストウィンドウ", "ko": "컨텍스트 창", "nl": "Contextvenster", "pl": "Okno kontekstu", "pt-BR": "Janela de contexto", "ru": "Контекстное окно", "tr": "Bağlam penceresi", "ur": "سیاق ونڈو", "zh-HK": "上下文視窗", "zh-Hans": "上下文窗口", "zh-Hant": "上下文視窗"
+  },
+  "Deny": {
+    "en": "Deny", "ar": "رفض", "de": "Ablehnen", "es": "Denegar", "fr": "Refuser", "he": "דחה", "it": "Nega", "ja": "拒否", "ko": "거부", "nl": "Weigeren", "pl": "Odmów", "pt-BR": "Negar", "ru": "Отклонить", "tr": "Reddet", "ur": "انکار", "zh-HK": "拒絕", "zh-Hans": "拒绝", "zh-Hant": "拒絕"
+  },
+  "Details": {
+    "en": "Details", "ar": "التفاصيل", "de": "Details", "es": "Detalles", "fr": "Détails", "he": "פרטים", "it": "Dettagli", "ja": "詳細", "ko": "세부 정보", "nl": "Details", "pl": "Szczegóły", "pt-BR": "Detalhes", "ru": "Подробности", "tr": "Ayrıntılar", "ur": "تفصیلات", "zh-HK": "詳細資料", "zh-Hans": "详细信息", "zh-Hant": "詳細資料"
+  },
+  "Discard": {
+    "en": "Discard", "ar": "تجاهل", "de": "Verwerfen", "es": "Descartar", "fr": "Ignorer", "he": "השלך", "it": "Scarta", "ja": "破棄", "ko": "버리기", "nl": "Verwerpen", "pl": "Odrzuć", "pt-BR": "Descartar", "ru": "Отбросить", "tr": "Vazgeç", "ur": "مسترد کریں", "zh-HK": "捨棄", "zh-Hans": "放弃", "zh-Hant": "捨棄"
+  },
+  "File changes": {
+    "en": "File changes", "ar": "تغييرات الملفات", "de": "Dateiänderungen", "es": "Cambios de archivos", "fr": "Modifications de fichiers", "he": "שינויים בקבצים", "it": "Modifiche ai file", "ja": "ファイルの変更", "ko": "파일 변경 사항", "nl": "Bestandswijzigingen", "pl": "Zmiany plików", "pt-BR": "Alterações de arquivos", "ru": "Изменения файлов", "tr": "Dosya değişiklikleri", "ur": "فائل کی تبدیلیاں", "zh-HK": "檔案變更", "zh-Hans": "文件更改", "zh-Hant": "檔案變更"
+  },
+  "Load remote image": {
+    "en": "Load remote image", "ar": "تحميل الصورة البعيدة", "de": "Externes Bild laden", "es": "Cargar imagen remota", "fr": "Charger l’image distante", "he": "טען תמונה מרוחקת", "it": "Carica immagine remota", "ja": "リモート画像を読み込む", "ko": "원격 이미지 불러오기", "nl": "Externe afbeelding laden", "pl": "Wczytaj zdalny obraz", "pt-BR": "Carregar imagem remota", "ru": "Загрузить удалённое изображение", "tr": "Uzak görseli yükle", "ur": "ریموٹ تصویر لوڈ کریں", "zh-HK": "載入遠端圖片", "zh-Hans": "加载远程图片", "zh-Hant": "載入遠端圖片"
+  },
+  "Name: Value": {
+    "en": "Name: Value", "ar": "الاسم: القيمة", "de": "Name: Wert", "es": "Nombre: valor", "fr": "Nom : valeur", "he": "שם: ערך", "it": "Nome: valore", "ja": "名前: 値", "ko": "이름: 값", "nl": "Naam: waarde", "pl": "Nazwa: wartość", "pt-BR": "Nome: valor", "ru": "Имя: значение", "tr": "Ad: Değer", "ur": "نام: قدر", "zh-HK": "名稱：值", "zh-Hans": "名称：值", "zh-Hant": "名稱：值"
+  },
+  "Open": {
+    "en": "Open", "ar": "فتح", "de": "Öffnen", "es": "Abrir", "fr": "Ouvrir", "he": "פתח", "it": "Apri", "ja": "開く", "ko": "열기", "nl": "Openen", "pl": "Otwórz", "pt-BR": "Abrir", "ru": "Открыть", "tr": "Aç", "ur": "کھولیں", "zh-HK": "開啟", "zh-Hans": "打开", "zh-Hant": "開啟"
+  },
+  "Open diff": {
+    "en": "Open diff", "ar": "فتح الفروقات", "de": "Diff öffnen", "es": "Abrir diferencias", "fr": "Ouvrir le diff", "he": "פתח הבדלים", "it": "Apri diff", "ja": "差分を開く", "ko": "차이 열기", "nl": "Diff openen", "pl": "Otwórz różnice", "pt-BR": "Abrir diff", "ru": "Открыть различия", "tr": "Farkı aç", "ur": "فرق کھولیں", "zh-HK": "開啟差異", "zh-Hans": "打开差异", "zh-Hant": "開啟差異"
+  },
+  "Pending prompts: %lld": {
+    "en": "Pending prompts: %lld", "ar": "المطالبات المعلقة: %lld", "de": "Ausstehende Rückfragen: %lld", "es": "Solicitudes pendientes: %lld", "fr": "Demandes en attente : %lld", "he": "בקשות ממתינות: %lld", "it": "Richieste in sospeso: %lld", "ja": "保留中の確認: %lld", "ko": "대기 중인 요청: %lld", "nl": "Openstaande vragen: %lld", "pl": "Oczekujące pytania: %lld", "pt-BR": "Solicitações pendentes: %lld", "ru": "Ожидающие запросы: %lld", "tr": "Bekleyen istemler: %lld", "ur": "زیر التوا درخواستیں: %lld", "zh-HK": "待處理提示：%lld", "zh-Hans": "待处理提示：%lld", "zh-Hant": "待處理提示：%lld"
+  },
+  "Queue": {
+    "en": "Queue", "ar": "إضافة إلى الطابور", "de": "Einreihen", "es": "Poner en cola", "fr": "Mettre en file", "he": "הוסף לתור", "it": "Accoda", "ja": "キューに追加", "ko": "대기열에 추가", "nl": "In wachtrij", "pl": "Dodaj do kolejki", "pt-BR": "Enfileirar", "ru": "В очередь", "tr": "Kuyruğa al", "ur": "قطار میں شامل کریں", "zh-HK": "加入佇列", "zh-Hans": "加入队列", "zh-Hant": "加入佇列"
+  },
+  "Recording voice note": {
+    "en": "Recording voice note", "ar": "جارٍ تسجيل ملاحظة صوتية", "de": "Sprachnotiz wird aufgenommen", "es": "Grabando nota de voz", "fr": "Enregistrement de la note vocale", "he": "מקליט הערה קולית", "it": "Registrazione nota vocale", "ja": "音声メモを録音中", "ko": "음성 메모 녹음 중", "nl": "Spraaknotitie opnemen", "pl": "Nagrywanie notatki głosowej", "pt-BR": "Gravando nota de voz", "ru": "Запись голосовой заметки", "tr": "Sesli not kaydediliyor", "ur": "صوتی نوٹ ریکارڈ ہو رہا ہے", "zh-HK": "正在錄製語音備忘", "zh-Hans": "正在录制语音备注", "zh-Hant": "正在錄製語音備忘"
+  },
+  "Response": {
+    "en": "Response", "ar": "الاستجابة", "de": "Antwort", "es": "Respuesta", "fr": "Réponse", "he": "תשובה", "it": "Risposta", "ja": "応答", "ko": "응답", "nl": "Antwoord", "pl": "Odpowiedź", "pt-BR": "Resposta", "ru": "Ответ", "tr": "Yanıt", "ur": "جواب", "zh-HK": "回應", "zh-Hans": "回复", "zh-Hant": "回應"
+  },
+  "Saving memory...": {
+    "en": "Saving memory...", "ar": "جارٍ حفظ الذاكرة...", "de": "Erinnerung wird gespeichert...", "es": "Guardando memoria...", "fr": "Enregistrement de la mémoire...", "he": "שומר זיכרון...", "it": "Salvataggio memoria...", "ja": "メモリを保存中...", "ko": "메모리 저장 중...", "nl": "Geheugen opslaan...", "pl": "Zapisywanie pamięci...", "pt-BR": "Salvando memória...", "ru": "Сохранение памяти...", "tr": "Bellek kaydediliyor...", "ur": "یادداشت محفوظ کی جا رہی ہے...", "zh-HK": "正在儲存記憶...", "zh-Hans": "正在保存记忆...", "zh-Hant": "正在儲存記憶..."
+  },
+  "Sending voice note...": {
+    "en": "Sending voice note...", "ar": "جارٍ إرسال الملاحظة الصوتية...", "de": "Sprachnotiz wird gesendet...", "es": "Enviando nota de voz...", "fr": "Envoi de la note vocale...", "he": "שולח הערה קולית...", "it": "Invio nota vocale...", "ja": "音声メモを送信中...", "ko": "음성 메모 전송 중...", "nl": "Spraaknotitie verzenden...", "pl": "Wysyłanie notatki głosowej...", "pt-BR": "Enviando nota de voz...", "ru": "Отправка голосовой заметки...", "tr": "Sesli not gönderiliyor...", "ur": "صوتی نوٹ بھیجا جا رہا ہے...", "zh-HK": "正在傳送語音備忘...", "zh-Hans": "正在发送语音备注...", "zh-Hant": "正在傳送語音備忘..."
+  },
+  "Share": {
+    "en": "Share", "ar": "مشاركة", "de": "Teilen", "es": "Compartir", "fr": "Partager", "he": "שתף", "it": "Condividi", "ja": "共有", "ko": "공유", "nl": "Delen", "pl": "Udostępnij", "pt-BR": "Compartilhar", "ru": "Поделиться", "tr": "Paylaş", "ur": "شیئر کریں", "zh-HK": "分享", "zh-Hans": "分享", "zh-Hant": "分享"
+  },
+  "Show Response Excerpts": {
+    "en": "Show Response Excerpts", "ar": "إظهار مقتطفات الرد", "de": "Antwortauszüge anzeigen", "es": "Mostrar extractos de respuesta", "fr": "Afficher les extraits de réponse", "he": "הצג קטעי תשובה", "it": "Mostra estratti della risposta", "ja": "応答の抜粋を表示", "ko": "응답 발췌 표시", "nl": "Antwoordfragmenten tonen", "pl": "Pokaż fragmenty odpowiedzi", "pt-BR": "Mostrar trechos da resposta", "ru": "Показывать фрагменты ответа", "tr": "Yanıt alıntılarını göster", "ur": "جواب کے اقتباسات دکھائیں", "zh-HK": "顯示回應摘要", "zh-Hans": "显示回复摘要", "zh-Hant": "顯示回應摘要"
+  },
+  "Stage": {
+    "en": "Stage", "ar": "إضافة إلى التجهيز", "de": "Bereitstellen", "es": "Preparar", "fr": "Indexer", "he": "הוסף ל-Staging", "it": "Prepara", "ja": "ステージ", "ko": "스테이징", "nl": "Stagen", "pl": "Dodaj do przechowalni", "pt-BR": "Preparar", "ru": "Индексировать", "tr": "Hazırla", "ur": "اسٹیج کریں", "zh-HK": "加入暫存區", "zh-Hans": "暂存", "zh-Hant": "加入暫存區"
+  },
+  "Server URLs, custom headers, and cookies are stored in Android encrypted storage.": {
+    "en": "Server URLs, custom headers, and cookies are stored in Android encrypted storage.", "ar": "يتم تخزين عناوين URL للخوادم والرؤوس المخصصة وملفات تعريف الارتباط في التخزين المشفر على Android.", "de": "Server-URLs, benutzerdefinierte Header und Cookies werden im verschlüsselten Android-Speicher gespeichert.", "es": "Las URL de servidores, los encabezados personalizados y las cookies se guardan en el almacenamiento cifrado de Android.", "fr": "Les URL de serveur, les en-têtes personnalisés et les cookies sont stockés dans le stockage chiffré d’Android.", "he": "כתובות URL של שרתים, כותרות מותאמות אישית וקובצי Cookie נשמרים באחסון המוצפן של Android.", "it": "URL dei server, intestazioni personalizzate e cookie sono archiviati nella memoria crittografata di Android.", "ja": "サーバーURL、カスタムヘッダー、CookieはAndroidの暗号化ストレージに保存されます。", "ko": "서버 URL, 사용자 지정 헤더 및 쿠키는 Android 암호화 저장소에 저장됩니다.", "nl": "Server-URL's, aangepaste headers en cookies worden opgeslagen in versleutelde Android-opslag.", "pl": "Adresy URL serwerów, niestandardowe nagłówki i pliki cookie są przechowywane w szyfrowanej pamięci Androida.", "pt-BR": "URLs de servidor, cabeçalhos personalizados e cookies são armazenados no armazenamento criptografado do Android.", "ru": "URL-адреса серверов, пользовательские заголовки и файлы cookie хранятся в зашифрованном хранилище Android.", "tr": "Sunucu URL'leri, özel başlıklar ve çerezler Android'in şifreli depolamasında saklanır.", "ur": "سرور URLs، حسب ضرورت ہیڈرز اور کوکیز Android کی مرموز اسٹوریج میں محفوظ ہوتے ہیں۔", "zh-HK": "伺服器 URL、自訂標頭和 Cookie 會儲存在 Android 加密儲存空間中。", "zh-Hans": "服务器 URL、自定义标头和 Cookie 会存储在 Android 加密存储空间中。", "zh-Hant": "伺服器 URL、自訂標頭和 Cookie 會儲存在 Android 加密儲存空間中。"
+  },
+  "Switch": {
+    "en": "Switch", "ar": "تبديل", "de": "Wechseln", "es": "Cambiar", "fr": "Changer", "he": "החלף", "it": "Cambia", "ja": "切り替え", "ko": "전환", "nl": "Wisselen", "pl": "Przełącz", "pt-BR": "Alternar", "ru": "Переключить", "tr": "Değiştir", "ur": "تبدیل کریں", "zh-HK": "切換", "zh-Hans": "切换", "zh-Hant": "切換"
+  }
+  ,
+  "Unstage": {
+    "en": "Unstage", "ar": "إزالة من التجهيز", "de": "Bereitstellung aufheben", "es": "Quitar de preparados", "fr": "Désindexer", "he": "הסר מ-Staging", "it": "Rimuovi dalla preparazione", "ja": "ステージ解除", "ko": "스테이징 해제", "nl": "Uit staging halen", "pl": "Usuń z przechowalni", "pt-BR": "Remover da preparação", "ru": "Убрать из индекса", "tr": "Hazırlamayı kaldır", "ur": "اسٹیج سے ہٹائیں", "zh-HK": "移出暫存區", "zh-Hans": "取消暂存", "zh-Hant": "移出暫存區"
+  },
+  "Voice dictation. Long press to record a voice note.": {
+    "en": "Voice dictation. Long press to record a voice note.", "ar": "إملاء صوتي. اضغط مطولًا لتسجيل ملاحظة صوتية.", "de": "Sprachdiktat. Lange drücken, um eine Sprachnotiz aufzunehmen.", "es": "Dictado por voz. Mantén pulsado para grabar una nota de voz.", "fr": "Dictée vocale. Appuyez longuement pour enregistrer une note vocale.", "he": "הכתבה קולית. לחץ לחיצה ארוכה כדי להקליט הערה קולית.", "it": "Dettatura vocale. Tieni premuto per registrare una nota vocale.", "ja": "音声入力。長押しで音声メモを録音します。", "ko": "음성 받아쓰기. 길게 눌러 음성 메모를 녹음하세요.", "nl": "Spraakdictaat. Houd ingedrukt om een spraaknotitie op te nemen.", "pl": "Dyktowanie głosowe. Przytrzymaj, aby nagrać notatkę głosową.", "pt-BR": "Ditado por voz. Mantenha pressionado para gravar uma nota de voz.", "ru": "Голосовой ввод. Удерживайте, чтобы записать голосовую заметку.", "tr": "Sesli dikte. Sesli not kaydetmek için basılı tutun.", "ur": "صوتی املا۔ صوتی نوٹ ریکارڈ کرنے کے لیے دیر تک دبائیں۔", "zh-HK": "語音聽寫。長按即可錄製語音備忘。", "zh-Hans": "语音听写。长按可录制语音备注。", "zh-Hant": "語音聽寫。長按即可錄製語音備忘。"
+  }
+}

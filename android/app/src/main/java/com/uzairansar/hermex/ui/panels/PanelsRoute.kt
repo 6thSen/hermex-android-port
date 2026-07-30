@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -94,6 +95,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 private val PanelPrimaryText: Color
     @Composable get() = MaterialTheme.colorScheme.onSurface
@@ -139,8 +142,8 @@ fun PanelsRoute(
                 onCreateTask = viewModel::openCreateTask,
                 createTaskEnabled = !state.isMutating,
             )
-            state.notice?.let { Text(it, color = PanelSecondaryText, style = MaterialTheme.typography.bodySmall) }
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            state.notice?.let { Text(localizedString(it), color = PanelSecondaryText, style = MaterialTheme.typography.bodySmall) }
+            state.error?.let { Text(localizedString(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             if (state.isLoading) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -148,7 +151,7 @@ fun PanelsRoute(
                     modifier = Modifier.padding(bottom = 6.dp),
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                    Text("Refreshing panels", color = PanelSecondaryText, style = MaterialTheme.typography.bodySmall)
+                    Text(localizedString("Refreshing panels"), color = PanelSecondaryText, style = MaterialTheme.typography.bodySmall)
                 }
             }
             state.refreshErrors.toSortedMap().forEach { (section, message) ->
@@ -195,9 +198,9 @@ fun PanelsRoute(
                                     },
                                 )
                             }
-                            item { PanelSectionLabel("Scheduled Jobs") }
+                            item { PanelSectionLabel(localizedString("Scheduled Jobs")) }
                             if (state.crons.isEmpty()) {
-                                item { PanelEmptyCard("No scheduled tasks.") }
+                                item { PanelEmptyCard(localizedString("No scheduled tasks.")) }
                             } else {
                                 state.crons.forEach { job ->
                                     item {
@@ -218,10 +221,10 @@ fun PanelsRoute(
                         } else {
                             item {
                                 PanelCard("Tasks") {
-                                    HermexPillButton("New Task", viewModel::openCreateTask, enabled = !state.isMutating, filled = true)
+                                    HermexPillButton(localizedString("New Task"), viewModel::openCreateTask, enabled = !state.isMutating, filled = true)
                                     Spacer(Modifier.height(8.dp))
                                     if (state.crons.isEmpty()) {
-                                        Text("No scheduled tasks.")
+                                        Text(localizedString("No scheduled tasks."))
                                     } else {
                                         state.crons.forEach { job ->
                                             CronRow(
@@ -268,11 +271,11 @@ fun PanelsRoute(
                             }
                             when {
                                 state.skills.isEmpty() -> item {
-                                    PanelEmptyCard("Skills from the Hermes server will appear here.", title = "No Skills")
+                                    PanelEmptyCard(localizedString("Skills from the Hermes server will appear here."), title = "No Skills")
                                 }
                                 state.skillSearchText.isNotBlank() && state.filteredSkillGroups.isEmpty() -> item {
                                     PanelEmptyCard(
-                                        message = "No skills match \"${state.skillSearchText.trim()}\".",
+                                        message = localizedStringFormat("No skills match \"%@\".", state.skillSearchText.trim()),
                                         title = "No Results",
                                     )
                                 }
@@ -298,12 +301,12 @@ fun PanelsRoute(
                                     )
                                     Spacer(Modifier.height(10.dp))
                                     if (state.skills.isEmpty()) {
-                                        Text("No Skills", fontWeight = FontWeight.SemiBold)
-                                        Text("Skills from the Hermes server will appear here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                                        Text(localizedString("No Skills"), fontWeight = FontWeight.SemiBold)
+                                        Text(localizedString("Skills from the Hermes server will appear here."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                                     } else if (state.skillSearchText.isNotBlank() && state.filteredSkillGroups.isEmpty()) {
-                                        Text("No Results", fontWeight = FontWeight.SemiBold)
+                                        Text(localizedString("No Results"), fontWeight = FontWeight.SemiBold)
                                         Text(
-                                            "No skills match \"${state.skillSearchText.trim()}\".",
+                                            localizedStringFormat("No skills match \"%@\".", state.skillSearchText.trim()),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.secondary,
                                         )
@@ -360,13 +363,13 @@ fun PanelsRoute(
             shape = HermexGlassShape,
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::dismissDeleteCron,
-            title = { Text("Delete task?") },
+            title = { Text(localizedString("Delete task?")) },
             text = { Text("Delete ${job.displayName}? This cannot be undone.") },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmDeleteCron, enabled = !state.isMutating) { Text("Delete") }
+                TextButton(onClick = viewModel::confirmDeleteCron, enabled = !state.isMutating) { Text(localizedString("Delete")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDeleteCron) { Text("Cancel") }
+                TextButton(onClick = viewModel::dismissDeleteCron) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -495,7 +498,7 @@ private fun FocusedInsightsPanel(
             }
         }
         if (!insights?.models.isNullOrEmpty()) {
-            PanelSectionLabel("Models")
+            PanelSectionLabel(localizedString("Models"))
             Column(
                 modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(horizontal = 18.dp),
             ) {
@@ -506,7 +509,7 @@ private fun FocusedInsightsPanel(
             }
         }
         if (!insights?.dailyTokens.isNullOrEmpty()) {
-            PanelSectionLabel("Recent Daily Tokens")
+            PanelSectionLabel(localizedString("Recent Daily Tokens"))
             Column(
                 modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(horizontal = 18.dp),
             ) {
@@ -519,17 +522,17 @@ private fun FocusedInsightsPanel(
         val peakDay = insights?.activityByDay.orEmpty().maxByOrNull { it.sessions ?: 0 }
         val peakHour = insights?.activityByHour.orEmpty().maxByOrNull { it.sessions ?: 0 }
         if (peakDay != null || peakHour != null) {
-            PanelSectionLabel("Activity")
+            PanelSectionLabel(localizedString("Activity"))
             Column(
                 modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                peakDay?.let { ActivityPanelRow("Peak Day", it.day ?: "Unknown", "${it.sessions ?: 0} sessions") }
-                peakHour?.let { ActivityPanelRow("Peak Hour", formatHour(it.hour), "${it.sessions ?: 0} sessions") }
+                peakDay?.let { ActivityPanelRow(localizedString("Peak Day"), it.day ?: "Unknown", "${it.sessions ?: 0} sessions") }
+                peakHour?.let { ActivityPanelRow(localizedString("Peak Hour"), formatHour(it.hour), "${it.sessions ?: 0} sessions") }
             }
         }
         if (dataSource != InsightsDataSource.Server && local.topSessions.isNotEmpty()) {
-            PanelSectionLabel("Top Sessions")
+            PanelSectionLabel(localizedString("Top Sessions"))
             Column(
                 modifier = Modifier.fillMaxWidth().hermexGlass(shape = HermexCardShape, castsShadow = false).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -593,7 +596,7 @@ private fun PanelsHeader(
             .padding(bottom = 18.dp),
     ) {
         HermexIconButton(
-            label = "Back",
+            label = localizedString("Back"),
             symbol = "<",
             onClick = onBack,
             modifier = Modifier.align(androidx.compose.ui.Alignment.CenterStart),
@@ -635,20 +638,20 @@ private fun PanelsHeader(
                     .padding(2.dp),
             ) {
                 PanelHeaderIconAction(
-                    label = "New Task",
+                    label = localizedString("New Task"),
                     iconRes = R.drawable.ic_hermex_plus,
                     onClick = onCreateTask,
                     enabled = createTaskEnabled,
                 )
                 PanelHeaderIconAction(
-                    label = "Refresh",
+                    label = localizedString("Refresh"),
                     iconRes = R.drawable.ic_hermex_refresh,
                     onClick = onRefresh,
                 )
             }
         } else {
             HermexIconButton(
-                label = "Refresh",
+                label = localizedString("Refresh"),
                 symbol = "Refresh",
                 onClick = onRefresh,
                 modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
@@ -711,7 +714,7 @@ private fun RunningTasksCard(count: Int) {
                 colorFilter = ColorFilter.tint(Color(0xFF0A84FF)),
             )
             Text(
-                "Running now",
+                localizedString("Running now"),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = PanelPrimaryText,
@@ -728,7 +731,7 @@ private fun RunningTasksCard(count: Int) {
 @Composable
 private fun PanelSectionLabel(title: String) {
     Text(
-        title,
+        localizedString(title),
         modifier = Modifier.padding(start = 8.dp, top = 8.dp),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
@@ -753,9 +756,9 @@ private fun PanelEmptyCard(
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         title?.let {
-            Text(it, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(localizedString(it), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
-        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Text(localizedString(message), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
     }
 }
 
@@ -815,7 +818,7 @@ private fun SkillSearchField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = { Text("Search skills...") },
+        placeholder = { Text(localizedString("Search skills...")) },
         leadingIcon = {
             Image(
                 painter = painterResource(R.drawable.ic_hermex_search),
@@ -999,12 +1002,12 @@ private fun CronRow(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                HermexPillButton("Details", onDetails, enabled = !isMutating, filled = true)
-                HermexPillButton("Edit", onEdit, enabled = !isMutating)
-                HermexPillButton("Run", onRun, enabled = !isMutating)
+                HermexPillButton(localizedString("Details"), onDetails, enabled = !isMutating, filled = true)
+                HermexPillButton(localizedString("Edit"), onEdit, enabled = !isMutating)
+                HermexPillButton(localizedString("Run"), onRun, enabled = !isMutating)
                 HermexPillButton(if (job.isPaused) "Resume" else "Pause", onPauseResume, enabled = !isMutating)
-                HermexPillButton("Output", onOutput, enabled = !isMutating)
-                HermexPillButton("Delete", onDelete, enabled = !isMutating)
+                HermexPillButton(localizedString("Output"), onOutput, enabled = !isMutating)
+                HermexPillButton(localizedString("Delete"), onDelete, enabled = !isMutating)
             }
         }
     }
@@ -1069,7 +1072,7 @@ private fun TaskDetailSheet(
                 }
                 StatusBadge(job.statusLabel(runningElapsed), job.statusColor(runningElapsed))
                 HermexIconButton(
-                    label = "Close task details",
+                    label = localizedString("Close task details"),
                     symbol = "×",
                     onClick = onDismiss,
                     tonalContainerColor = Color.Transparent,
@@ -1081,12 +1084,12 @@ private fun TaskDetailSheet(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                HermexPillButton("Refresh", onRefreshOutput, enabled = !isLoadingOutput)
-                HermexPillButton("Run Now", onRun, enabled = !isMutating)
+                HermexPillButton(localizedString("Refresh"), onRefreshOutput, enabled = !isLoadingOutput)
+                HermexPillButton(localizedString("Run Now"), onRun, enabled = !isMutating)
                 HermexPillButton(if (job.isPaused) "Resume" else "Pause", onPauseResume, enabled = !isMutating)
-                HermexPillButton("Edit", onEdit, enabled = !isMutating)
-                HermexPillButton("Delete", onDelete, enabled = !isMutating)
-                HermexPillButton("Done", onDismiss, enabled = true, filled = true)
+                HermexPillButton(localizedString("Edit"), onEdit, enabled = !isMutating)
+                HermexPillButton(localizedString("Delete"), onDelete, enabled = !isMutating)
+                HermexPillButton(localizedString("Done"), onDismiss, enabled = true, filled = true)
             }
 
             if (isMutating) {
@@ -1096,14 +1099,14 @@ private fun TaskDetailSheet(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Text(
-                        "Updating task...",
+                        localizedString("Updating task..."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
                 }
             }
 
-            PanelSubsection("Details") {
+            PanelSubsection(localizedString("Details")) {
                 CronJobMetadataRow("Schedule", job.scheduleText)
                 CronJobMetadataRow("Next", job.nextRunAt.panelDateText() ?: "Not available")
                 CronJobMetadataRow("Last", job.lastRunAt.panelDateText() ?: "Never")
@@ -1118,11 +1121,11 @@ private fun TaskDetailSheet(
                 }
             }
 
-            PanelSubsection("Recent Output") {
+            PanelSubsection(localizedString("Recent Output")) {
                 when {
                     isLoadingOutput -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text("Loading output...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        Text(localizedString("Loading output..."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                     output?.error?.isNotBlank() == true && output.outputs.isNullOrEmpty() -> Text(
                         output.error,
@@ -1130,7 +1133,7 @@ private fun TaskDetailSheet(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     output?.outputs.isNullOrEmpty() -> Text(
-                        "This task has not produced any output yet.",
+                        localizedString("This task has not produced any output yet."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -1177,25 +1180,41 @@ private fun CronJobMetadataRow(
     value: String,
     isError: Boolean = false,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.Top,
-    ) {
+    val usesStackedLayout = LocalConfiguration.current.fontScale >= 1.3f
+    val titleContent: @Composable () -> Unit = {
         Text(
             title,
-            modifier = Modifier.width(64.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.secondary,
         )
+    }
+    val valueContent: @Composable (Modifier) -> Unit = { modifier ->
         Text(
             value,
-            modifier = Modifier.weight(1f),
+            modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
+            maxLines = if (usesStackedLayout) 4 else 2,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+    if (usesStackedLayout) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            titleContent()
+            valueContent(Modifier.fillMaxWidth())
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.Top,
+        ) {
+            Box(Modifier.width(64.dp)) { titleContent() }
+            valueContent(Modifier.weight(1f))
+        }
     }
 }
 
@@ -1248,9 +1267,9 @@ private fun InsightsPanel(
 
         if (!hasLoadedAnalytics) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("No Data", fontWeight = FontWeight.SemiBold)
+                Text(localizedString("No Data"), fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Session usage data will appear here once you have conversations.",
+                    localizedString("Session usage data will appear here once you have conversations."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -1263,18 +1282,18 @@ private fun InsightsPanel(
                 color = MaterialTheme.colorScheme.secondary,
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AnalyticsMetricRow("Sessions", formattedTokens(insights?.totalSessions ?: localAnalytics.sessionCount))
-                AnalyticsMetricRow("Messages", formattedTokens(insights?.totalMessages ?: localAnalytics.totalMessages))
-                AnalyticsMetricRow("Input Tokens", formattedTokens(insights?.totalInputTokens ?: localAnalytics.totalInputTokens))
-                AnalyticsMetricRow("Output Tokens", formattedTokens(insights?.totalOutputTokens ?: localAnalytics.totalOutputTokens))
-                AnalyticsMetricRow("Total Tokens", formattedTokens(insights?.totalTokens ?: localAnalytics.totalTokens))
-                AnalyticsMetricRow("Estimated Cost", formattedCost(insights?.totalCost ?: localAnalytics.estimatedCost))
-                insights?.totalCacheHitPercent?.let { AnalyticsMetricRow("Cache Hit Rate", formattedPercent(it)) }
-                insights?.totalCacheReadTokens?.let { AnalyticsMetricRow("Cache Read Tokens", formattedTokens(it)) }
+                AnalyticsMetricRow(localizedString("Sessions"), formattedTokens(insights?.totalSessions ?: localAnalytics.sessionCount))
+                AnalyticsMetricRow(localizedString("Messages"), formattedTokens(insights?.totalMessages ?: localAnalytics.totalMessages))
+                AnalyticsMetricRow(localizedString("Input Tokens"), formattedTokens(insights?.totalInputTokens ?: localAnalytics.totalInputTokens))
+                AnalyticsMetricRow(localizedString("Output Tokens"), formattedTokens(insights?.totalOutputTokens ?: localAnalytics.totalOutputTokens))
+                AnalyticsMetricRow(localizedString("Total Tokens"), formattedTokens(insights?.totalTokens ?: localAnalytics.totalTokens))
+                AnalyticsMetricRow(localizedString("Estimated Cost"), formattedCost(insights?.totalCost ?: localAnalytics.estimatedCost))
+                insights?.totalCacheHitPercent?.let { AnalyticsMetricRow(localizedString("Cache Hit Rate"), formattedPercent(it)) }
+                insights?.totalCacheReadTokens?.let { AnalyticsMetricRow(localizedString("Cache Read Tokens"), formattedTokens(it)) }
             }
 
             if (!insights?.models.isNullOrEmpty()) {
-                PanelSubsection("Models") {
+                PanelSubsection(localizedString("Models")) {
                     insights.models.orEmpty().take(10).forEach { model ->
                         ModelBreakdownPanelRow(model)
                     }
@@ -1282,7 +1301,7 @@ private fun InsightsPanel(
             }
 
             if (!insights?.dailyTokens.isNullOrEmpty()) {
-                PanelSubsection("Recent Daily Tokens") {
+                PanelSubsection(localizedString("Recent Daily Tokens")) {
                     insights.dailyTokens.orEmpty().takeLast(14).forEach { day ->
                         DailyTokenPanelRow(day)
                     }
@@ -1292,18 +1311,18 @@ private fun InsightsPanel(
             val peakDay = insights?.activityByDay.orEmpty().maxByOrNull { it.sessions ?: 0 }
             val peakHour = insights?.activityByHour.orEmpty().maxByOrNull { it.sessions ?: 0 }
             if (peakDay != null || peakHour != null) {
-                PanelSubsection("Activity") {
+                PanelSubsection(localizedString("Activity")) {
                     peakDay?.let {
-                        ActivityPanelRow("Peak Day", it.day ?: "Unknown", "${it.sessions ?: 0} sessions")
+                        ActivityPanelRow(localizedString("Peak Day"), it.day ?: "Unknown", "${it.sessions ?: 0} sessions")
                     }
                     peakHour?.let {
-                        ActivityPanelRow("Peak Hour", formatHour(it.hour), "${it.sessions ?: 0} sessions")
+                        ActivityPanelRow(localizedString("Peak Hour"), formatHour(it.hour), "${it.sessions ?: 0} sessions")
                     }
                 }
             }
 
             if (dataSource != InsightsDataSource.Server && localAnalytics.topSessions.isNotEmpty()) {
-                PanelSubsection("Top Sessions") {
+                PanelSubsection(localizedString("Top Sessions")) {
                     localAnalytics.topSessions.take(10).forEach { session ->
                         TopSessionPanelRow(session)
                     }
@@ -1355,7 +1374,7 @@ private fun AnalyticsMetricRow(title: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.bodySmall, color = PanelSecondaryText)
+        Text(localizedString(title), style = MaterialTheme.typography.bodySmall, color = PanelSecondaryText)
         Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = PanelPrimaryText)
     }
 }
@@ -1364,7 +1383,7 @@ private fun AnalyticsMetricRow(title: String, value: String) {
 private fun PanelSubsection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            title.uppercase(),
+            localizedString(title).uppercase(),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.secondary,
@@ -1440,7 +1459,7 @@ private fun ActivityPanelRow(title: String, value: String, detail: String) {
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.labelSmall, color = PanelSecondaryText)
+            Text(localizedString(title), style = MaterialTheme.typography.labelSmall, color = PanelSecondaryText)
             Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = PanelPrimaryText)
         }
         Text(detail, style = MaterialTheme.typography.labelSmall, color = PanelSecondaryText)
@@ -1469,14 +1488,14 @@ private fun TaskEditorDialog(
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { onDraftChange(draft.copy(name = it)) },
-                    label = { Text("Name") },
+                    label = { Text(localizedString("Name")) },
                     singleLine = true,
                     enabled = !isMutating,
                 )
                 OutlinedTextField(
                     value = draft.prompt,
                     onValueChange = { onDraftChange(draft.copy(prompt = it)) },
-                    label = { Text("Prompt") },
+                    label = { Text(localizedString("Prompt")) },
                     minLines = 3,
                     maxLines = 6,
                     enabled = !isMutating,
@@ -1484,21 +1503,21 @@ private fun TaskEditorDialog(
                 OutlinedTextField(
                     value = draft.schedule,
                     onValueChange = { onDraftChange(draft.copy(schedule = it)) },
-                    label = { Text("Schedule") },
+                    label = { Text(localizedString("Schedule")) },
                     singleLine = true,
                     enabled = !isMutating,
                 )
                 OutlinedTextField(
                     value = draft.deliver,
                     onValueChange = { onDraftChange(draft.copy(deliver = it)) },
-                    label = { Text("Deliver") },
+                    label = { Text(localizedString("Deliver")) },
                     singleLine = true,
                     enabled = !isMutating,
                 )
                 OutlinedTextField(
                     value = draft.skillsText,
                     onValueChange = { onDraftChange(draft.copy(skillsText = it)) },
-                    label = { Text("Skills") },
+                    label = { Text(localizedString("Skills")) },
                     minLines = 1,
                     maxLines = 3,
                     enabled = !isMutating,
@@ -1506,14 +1525,14 @@ private fun TaskEditorDialog(
                 OutlinedTextField(
                     value = draft.model,
                     onValueChange = { onDraftChange(draft.copy(model = it)) },
-                    label = { Text("Model") },
+                    label = { Text(localizedString("Model")) },
                     singleLine = true,
                     enabled = !isMutating,
                 )
                 OutlinedTextField(
                     value = draft.profile,
                     onValueChange = { onDraftChange(draft.copy(profile = it)) },
-                    label = { Text("Profile") },
+                    label = { Text(localizedString("Profile")) },
                     singleLine = true,
                     enabled = !isMutating,
                 )
@@ -1523,7 +1542,7 @@ private fun TaskEditorDialog(
                         onCheckedChange = { onDraftChange(draft.copy(toastNotifications = it)) },
                         enabled = !isMutating,
                     )
-                    Text("Toast notifications")
+                    Text(localizedString("Toast notifications"))
                 }
             }
         },
@@ -1536,7 +1555,7 @@ private fun TaskEditorDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(localizedString("Cancel")) }
         },
     )
 }
@@ -1650,7 +1669,7 @@ private fun SkillRow(
             }
             if (!compact) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HermexPillButton("Open", onOpen, enabled = !isMutating)
+                    HermexPillButton(localizedString("Open"), onOpen, enabled = !isMutating)
                     onToggle?.let {
                         HermexPillButton(
                             label = if (skill.disabled == true) "Enable" else "Disable",
@@ -1713,9 +1732,9 @@ private fun SkillDetailPanel(
             content.isNotEmpty() -> MarkdownText(content)
             !skill.error.isNullOrBlank() -> Text(skill.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             else -> {
-                Text("No Content", fontWeight = FontWeight.SemiBold)
+                Text(localizedString("No Content"), fontWeight = FontWeight.SemiBold)
                 Text(
-                    "This skill has no content.",
+                    localizedString("This skill has no content."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -1725,7 +1744,7 @@ private fun SkillDetailPanel(
         val linkedFiles = skill.linkedFileNames
         if (linkedFiles.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            PanelSubsection("Linked Files") {
+            PanelSubsection(localizedString("Linked Files")) {
                 linkedFiles.forEach { fileName ->
                     LinkedFileRow(
                         fileName = fileName,
@@ -1776,18 +1795,18 @@ private fun SkillDetailSheet(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                HermexPillButton("Done", onDismiss, filled = true)
+                HermexPillButton(localizedString("Done"), onDismiss, filled = true)
             }
             Spacer(Modifier.height(14.dp))
             val content = skill.content?.trim().orEmpty()
             when {
                 content.isNotEmpty() -> MarkdownText(content)
                 !skill.error.isNullOrBlank() -> Text(skill.error, color = MaterialTheme.colorScheme.error)
-                else -> Text("This skill has no content.", color = PanelSecondaryText)
+                else -> Text(localizedString("This skill has no content."), color = PanelSecondaryText)
             }
             if (skill.linkedFileNames.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
-                PanelSectionLabel("Linked Files")
+                PanelSectionLabel(localizedString("Linked Files"))
                 skill.linkedFileNames.forEach { fileName ->
                     LinkedFileRow(fileName, !isLoadingFile) { onOpenLinkedFile(fileName) }
                 }
@@ -1845,12 +1864,12 @@ private fun SkillLinkedFileDialog(
                 when {
                     isLoading -> CircularProgressIndicator(strokeWidth = 2.dp)
                     !content.isNullOrBlank() -> MarkdownText(content)
-                    else -> Text("This file appears to be empty.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    else -> Text(localizedString("This file appears to be empty."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text(localizedString("Close")) }
         },
     )
 }
@@ -2049,8 +2068,8 @@ private fun MemoryEditSheet(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                HermexPillButton("Cancel", onDismiss, enabled = !isSaving)
-                HermexPillButton("Save", onSave, enabled = !isSaving, filled = true)
+                HermexPillButton(localizedString("Cancel"), onDismiss, enabled = !isSaving)
+                HermexPillButton(localizedString("Save"), onSave, enabled = !isSaving, filled = true)
             }
             OutlinedTextField(
                 value = draft,
@@ -2066,7 +2085,7 @@ private fun MemoryEditSheet(
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
                     CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Text("Saving memory...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    Text(localizedString("Saving memory..."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
         }
@@ -2075,11 +2094,11 @@ private fun MemoryEditSheet(
 
 @Composable
 private fun ProjectContextPanel(memory: MemoryResponse, content: String) {
-    PanelSubsection("Project Context") {
+    PanelSubsection(localizedString("Project Context")) {
         TextChip("Read-only")
         if (memory.projectContextShadowed == true) {
             Text(
-                "A workspace-local file is overriding the global project context.",
+                localizedString("A workspace-local file is overriding the global project context."),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.tertiary,
             )

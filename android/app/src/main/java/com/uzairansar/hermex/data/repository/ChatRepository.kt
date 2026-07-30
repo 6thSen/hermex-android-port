@@ -16,6 +16,7 @@ import com.uzairansar.hermex.core.model.ModelSummary
 import com.uzairansar.hermex.core.model.NewSessionRequest
 import com.uzairansar.hermex.core.model.PersonalitySummary
 import com.uzairansar.hermex.core.model.ProfilesResponse
+import com.uzairansar.hermex.core.model.ProfileSwitchResponse
 import com.uzairansar.hermex.core.model.ProfileSummary
 import com.uzairansar.hermex.core.model.ReasoningResponse
 import com.uzairansar.hermex.core.model.SessionDetail
@@ -315,10 +316,13 @@ class ChatRepository(
     suspend fun skills(): List<SkillSummary> = client.skills().skills.orEmpty()
     suspend fun personalities(): List<PersonalitySummary> = client.personalities().personalities.orEmpty()
     suspend fun setPersonality(sessionId: String, name: String) = client.setPersonality(sessionId, name)
-    suspend fun switchProfile(profile: ProfileSummary) {
-        val name = profile.name ?: return
+    suspend fun switchProfile(profile: ProfileSummary): ProfileSwitchResponse {
+        val name = requireNotNull(profile.name?.takeIf { it.isNotBlank() }) {
+            "The server did not provide a profile name."
+        }
         val response = client.switchProfile(name)
         require(response.error.isNullOrBlank()) { response.error ?: "Could not switch profile." }
+        return response
     }
     suspend fun reasoning(model: ModelSummary?): ReasoningResponse = client.reasoning(model?.id ?: model?.name, model?.provider)
     suspend fun workspaces(): WorkspacesResponse = client.workspaces()

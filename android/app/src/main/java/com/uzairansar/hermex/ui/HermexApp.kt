@@ -380,10 +380,10 @@ private fun androidx.navigation.NavHostController.navigateSingleTop(route: Strin
     }
 }
 
-private fun Intent.hermexRoute(): String? {
+internal fun Intent.hermexRoute(): String? {
     val uri = data ?: return null
     if (uri.scheme != "hermes-agent") return null
-    return when (uri.host) {
+    return when (uri.host?.lowercase()) {
         "share" -> ShortcutDestination.shareRoute()
         "sessions" -> ShortcutDestination.sessionsRoute(uri.getQueryParameter("shortcutAction"))
         "new-chat" -> ShortcutDestination.sessionsRoute(ShortcutDestination.NewSessionAction)
@@ -392,8 +392,7 @@ private fun Intent.hermexRoute(): String? {
             ?.takeIf { it.isNotBlank() }
             ?.let { profile -> ShortcutDestination.sessionsRoute(ShortcutDestination.NewProfileSessionAction, profile) }
             ?: ShortcutDestination.sessionsRoute(ShortcutDestination.NewSessionAction)
-        "chat" -> uri.getQueryParameter("sessionId")
-            ?.takeIf { it.isNotBlank() }
+        "chat", "session" -> uri.hermexSessionId()
             ?.let { sessionId -> "chat/${Uri.encode(sessionId)}" }
         "settings" -> "settings"
         "panels" -> uri.getQueryParameter("section")?.takeIf { it.isNotBlank() }?.let { "panels?section=${Uri.encode(it)}" } ?: "panels"
@@ -401,10 +400,21 @@ private fun Intent.hermexRoute(): String? {
     }
 }
 
-private fun Intent.hermexServerId(): String? = data
-    ?.takeIf { it.scheme == "hermes-agent" && it.host == "chat" }
-    ?.getQueryParameter("serverId")
-    ?.takeIf { it.isNotBlank() }
+internal fun Intent.hermexServerId(): String? = data
+    ?.takeIf {
+        it.scheme == "hermes-agent" &&
+            (it.host.equals("chat", ignoreCase = true) || it.host.equals("session", ignoreCase = true))
+    }
+    ?.let { uri ->
+        sequenceOf("serverId", "server_id")
+            .mapNotNull(uri::getQueryParameter)
+            .firstOrNull { it.isNotBlank() }
+    }
+
+private fun Uri.hermexSessionId(): String? =
+    sequenceOf("sessionId", "id", "session_id")
+        .mapNotNull(::getQueryParameter)
+        .firstOrNull { it.isNotBlank() }
 
 private fun ShortcutDestination.sessionsRoute(action: String? = null, profile: String? = null): String {
     val supportedAction = supportedAction(action) ?: return "sessions"

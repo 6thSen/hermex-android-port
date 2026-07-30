@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -74,6 +75,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.uzairansar.hermex.ui.localization.localizedString
 
 @Composable
 fun WorkspaceRoute(
@@ -91,6 +93,37 @@ fun WorkspaceRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val shareScope = rememberCoroutineScope()
+    var pendingSavePayload by remember { mutableStateOf<WorkspaceSavePayload?>(null) }
+    val saveFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { destination ->
+        val payload = pendingSavePayload
+        pendingSavePayload = null
+        if (destination != null && payload != null) {
+            shareScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(destination)?.use { output -> output.write(payload.bytes) }
+                            ?: error("Could not open the selected destination.")
+                    }
+                }
+                Toast.makeText(
+                    context,
+                    result.fold(onSuccess = { "File saved." }, onFailure = { it.message ?: "Could not save file." }),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+    val savePreviewAs: (String?, String?, BinaryPreview?) -> Unit = { title, content, binaryPreview ->
+        val bytes = content?.toByteArray(Charsets.UTF_8) ?: binaryPreview?.bytes
+        if (bytes == null) {
+            viewModel.reportError("No file content is available to save.")
+        } else {
+            val sourcePath = title ?: binaryPreview?.path
+            val fileName = WorkspaceFilePreviewPolicy.displayName(sourcePath)
+            pendingSavePayload = WorkspaceSavePayload(bytes)
+            saveFileLauncher.launch(fileName)
+        }
+    }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -119,7 +152,7 @@ fun WorkspaceRoute(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
             state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
+                Text(localizedString(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
             }
             val visibleEntries = remember(state.entries, state.searchText) {
                 state.entries.filter { entry -> entry.matchesSearch(state.searchText) }
@@ -136,6 +169,7 @@ fun WorkspaceRoute(
                     textLineCount = WorkspaceFilePreviewPolicy.lineCount(state.preview?.content),
                     binaryPreview = null,
                     onClose = viewModel::closePreview,
+                    onSaveAs = { savePreviewAs(state.preview?.path, state.preview?.content, null) },
                     onShare = {
                         shareScope.launch {
                             shareWorkspacePreview(
@@ -155,8 +189,9 @@ fun WorkspaceRoute(
                     content = null,
                     textSizeBytes = null,
                     textLineCount = null,
-                binaryPreview = state.binaryPreview,
+                    binaryPreview = state.binaryPreview,
                     onClose = viewModel::closePreview,
+                    onSaveAs = { savePreviewAs(state.binaryPreview?.path, null, state.binaryPreview) },
                     onShare = {
                         shareScope.launch {
                             shareWorkspacePreview(
@@ -202,9 +237,9 @@ private fun WorkspaceHeader(
             .statusBarsPadding()
             .padding(bottom = 18.dp),
     ) {
-        HermexIconButton("Back", "‹", onBack, modifier = Modifier.align(Alignment.CenterStart))
+        HermexIconButton(localizedString("Back"), "‹", onBack, modifier = Modifier.align(Alignment.CenterStart))
         Text(
-            "Files",
+            localizedString("Files"),
             modifier = Modifier.align(Alignment.Center),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
@@ -234,7 +269,7 @@ private fun WorkspaceLocationHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+            Text(localizedString("Location"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
             Text(
                 currentPath ?: "Root",
                 modifier = Modifier.weight(1f),
@@ -248,8 +283,8 @@ private fun WorkspaceLocationHeader(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HermexPillButton("⌂  Root", onRoot, enabled = currentPath != null)
-            HermexPillButton("↑  Up", onUp, enabled = canGoUp)
+            HermexPillButton("⌂  ${localizedString("Root")}", onRoot, enabled = currentPath != null)
+            HermexPillButton("↑  ${localizedString("Up")}", onUp, enabled = canGoUp)
             roots.forEach { root ->
                 HermexPillButton(root.name ?: root.path ?: "Root", onClick = { onOpenRoot(root) })
             }
@@ -317,8 +352,8 @@ private fun WorkspaceSearchBar(
                 colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.secondary),
             )
         },
-        label = { Text("Search files") },
-        placeholder = { Text("Search files") },
+        label = { Text(localizedString("Search files")) },
+        placeholder = { Text(localizedString("Search files")) },
         singleLine = true,
         shape = HermexCardShape,
         colors = OutlinedTextFieldDefaults.colors(
@@ -334,6 +369,7 @@ private fun WorkspaceSearchBar(
 @Composable
 private fun WorkspaceEntryRow(entry: WorkspaceEntry, onClick: () -> Unit) {
     val isDirectory = entry.type == "directory" || entry.type == "dir" || entry.type == "folder"
+    val entryPath = entry.path ?: entry.name
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -349,7 +385,11 @@ private fun WorkspaceEntryRow(entry: WorkspaceEntry, onClick: () -> Unit) {
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f), HermexCardShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(if (isDirectory) "DIR" else "TXT", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                WorkspaceFilePreviewPolicy.badgeLabel(entryPath, isDirectory),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -359,7 +399,11 @@ private fun WorkspaceEntryRow(entry: WorkspaceEntry, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOfNotNull(entry.path, entry.type, entry.size?.let { "$it bytes" }).joinToString(" - ").ifBlank { "No metadata" },
+                text = listOfNotNull(
+                    entry.path,
+                    WorkspaceFilePreviewPolicy.kindLabel(entryPath, isDirectory),
+                    entry.size?.let(::fileSizeText),
+                ).joinToString(" - ").ifBlank { "No metadata" },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
                 maxLines = 1,
@@ -406,6 +450,7 @@ private fun FilePreview(
     textLineCount: Int?,
     binaryPreview: BinaryPreview?,
     onClose: () -> Unit,
+    onSaveAs: () -> Unit,
     onShare: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -454,6 +499,12 @@ private fun FilePreview(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                HermexPillButton(
+                    localizedString("Save As"),
+                    onSaveAs,
+                    enabled = !isLoading && (content != null || binaryPreview?.bytes != null),
+                    filled = binaryPreview?.isImage != true,
+                )
                 if (binaryPreview?.isImage == true) {
                     HermexPillButton(
                         if (isSavingImage) "Saving" else "Save",
@@ -475,11 +526,11 @@ private fun FilePreview(
                     )
                 }
                 HermexPillButton(
-                    "Share",
+                    localizedString("Share"),
                     onShare,
                     enabled = !isLoading && (content != null || binaryPreview?.bytes != null),
                 )
-                HermexPillButton("Close", onClose)
+                HermexPillButton(localizedString("Close"), onClose)
             }
         }
         saveImageMessage?.let { message ->
@@ -592,8 +643,8 @@ private fun FileUnavailablePreview(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+        Text(localizedString(title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(localizedString(message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
         FilePreviewHeader(path = path, metadata = metadata)
     }
 }
@@ -612,13 +663,17 @@ private fun previewMetadata(
     return parts.joinToString(" - ").takeIf { it.isNotBlank() }
 }
 
-private fun fileSizeText(bytes: Long): String =
+internal fun fileSizeText(bytes: Long): String =
     when {
         bytes < 1_000 -> "$bytes bytes"
         bytes < 1_000_000 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1_000.0)
         bytes < 1_000_000_000 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_000_000.0)
         else -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_000_000_000.0)
     }
+
+private data class WorkspaceSavePayload(
+    val bytes: ByteArray,
+)
 
 private fun saveWorkspaceImageToGallery(
     context: Context,

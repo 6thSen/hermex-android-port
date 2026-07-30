@@ -58,8 +58,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -100,6 +102,8 @@ import com.uzairansar.hermex.ui.theme.hermexColorFromHex
 import com.uzairansar.hermex.ui.theme.hermexGlass
 import com.uzairansar.hermex.ui.notifications.AndroidNotificationPermissionPolicy
 import com.uzairansar.hermex.ui.chat.StreamStatusNotifier
+import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 @Composable
 fun SettingsRoute(
@@ -197,7 +201,7 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Archived Sessions") {
                     SettingsAccessoryRow(
-                        label = "Archived Sessions",
+                        label = localizedString("Archived Sessions"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_archive_box,
                         onClick = onOpenArchivedSessions,
                     )
@@ -206,7 +210,7 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Appearance") {
                     SettingsPickerRow(
-                        label = "Theme",
+                        label = localizedString("Theme"),
                         value = state.themeMode.label,
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_half_filled_theme_circle,
                         onClick = {
@@ -221,7 +225,7 @@ fun SettingsRoute(
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Tint New Chat & Send",
+                        label = localizedString("Tint New Chat & Send"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_paintbrush,
                         value = state.tintPrimaryActionsWithThemeColor,
                         onValueChange = viewModel::setTintPrimaryActionsWithThemeColor,
@@ -253,14 +257,14 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Interaction") {
                     SettingsToggleRow(
-                        label = "Haptic Feedback",
+                        label = localizedString("Haptic Feedback"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_haptic_phone,
                         value = state.hapticsEnabled,
                         onValueChange = viewModel::setHapticsEnabled,
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Response Complete Alerts",
+                        label = localizedString("Response Complete Alerts"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_bell,
                         value = state.responseCompletionNotificationsEnabled,
                         onValueChange = { enabled ->
@@ -279,8 +283,17 @@ fun SettingsRoute(
                     )
                     responseCompletionNotificationStatusText(state, context)?.let { SettingsFootnote(it) }
                     SettingsDivider()
+                    SettingsToggleRow(
+                        label = localizedString("Show Response Excerpts"),
+                        iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_bell,
+                        value = state.chatDisplaySettings.showsStatusNotificationResponseExcerpts,
+                        enabled = state.responseCompletionNotificationsEnabled,
+                        onValueChange = viewModel::setShowsStatusNotificationResponseExcerpts,
+                    )
+                    SettingsFootnote("Include the latest response text in Android status and completion notifications.")
+                    SettingsDivider()
                     SettingsPickerRow(
-                        label = "Send While Responding",
+                        label = localizedString("Send While Responding"),
                         value = state.streamingSendBehavior.settingsDescription,
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_message_arrow,
                         onClick = {
@@ -294,14 +307,14 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Chat") {
                     SettingsToggleRow(
-                        label = "Thinking and Tool Cards",
+                        label = localizedString("Thinking and Tool Cards"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_lucide_brain,
                         value = state.chatDisplaySettings.showThinkingAndToolCards,
                         onValueChange = viewModel::setShowThinkingAndToolCards,
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Expand Thinking by Default",
+                        label = localizedString("Expand Thinking by Default"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_expand_vertical,
                         value = state.chatDisplaySettings.thinkingCardsStartExpanded,
                         enabled = state.chatDisplaySettings.showThinkingAndToolCards,
@@ -309,7 +322,7 @@ fun SettingsRoute(
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Expand Tools by Default",
+                        label = localizedString("Expand Tools by Default"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_tools_wrench,
                         value = state.chatDisplaySettings.toolCardsStartExpanded,
                         enabled = state.chatDisplaySettings.showThinkingAndToolCards,
@@ -318,7 +331,7 @@ fun SettingsRoute(
                     SettingsFootnote("Thinking and Tool cards start expanded instead of collapsed. Tapping a card still toggles it.")
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Streamed Text Animation",
+                        label = localizedString("Streamed Text Animation"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_sparkles,
                         value = state.chatDisplaySettings.streamedTextAnimationEnabled,
                         onValueChange = viewModel::setStreamedTextAnimationEnabled,
@@ -326,7 +339,7 @@ fun SettingsRoute(
                     SettingsFootnote("Fades words in as a response streams. Turn off to show text instantly.")
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Response Timestamps",
+                        label = localizedString("Response Timestamps"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_clock,
                         value = state.chatDisplaySettings.showsAssistantTurnTimestamps,
                         onValueChange = viewModel::setShowsAssistantTurnTimestamps,
@@ -334,7 +347,7 @@ fun SettingsRoute(
                     SettingsFootnote("Adds a small marker and time above each response.")
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Wrap Code Block Lines",
+                        label = localizedString("Wrap Code Block Lines"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_wrap_line,
                         value = state.chatDisplaySettings.wrapsCodeBlockLines,
                         onValueChange = viewModel::setWrapsCodeBlockLines,
@@ -342,7 +355,7 @@ fun SettingsRoute(
                     SettingsFootnote("Wraps long code lines to fit the screen instead of scrolling sideways.")
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Right-to-Left Chat Layout",
+                        label = localizedString("Right-to-Left Chat Layout"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_align_right,
                         value = state.chatDisplaySettings.rtlChatLayoutEnabled,
                         onValueChange = viewModel::setRtlChatLayoutEnabled,
@@ -350,7 +363,7 @@ fun SettingsRoute(
                     SettingsFootnote("Lays out messages and the composer right-to-left while code and tool output stay left-to-right.")
                     SettingsDivider()
                     SettingsToggleRow(
-                        label = "Hide Attachment Paths",
+                        label = localizedString("Hide Attachment Paths"),
                         iconRes = com.uzairansar.hermex.R.drawable.ic_hermex_eye_slash,
                         value = state.chatDisplaySettings.hidesAttachmentPaths,
                         onValueChange = viewModel::setHidesAttachmentPaths,
@@ -361,7 +374,7 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Servers") {
                     if (state.serverSnapshot.servers.isEmpty()) {
-                        Text("No servers configured.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        Text(localizedString("No servers configured."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     } else {
                         state.serverSnapshot.servers.forEach { account ->
                             ServerAccountRow(
@@ -389,7 +402,7 @@ fun SettingsRoute(
                     )
                     Spacer(Modifier.height(9.dp))
                     Text(
-                        "Server URLs, custom headers, and cookies are stored in Android encrypted storage.",
+                        localizedString("Server URLs, custom headers, and cookies are stored in Android encrypted storage."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -415,24 +428,24 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Active Server") {
                     when {
-                        panelsRepository == null -> Text("Connect to a server to manage active-server settings.", style = MaterialTheme.typography.bodySmall)
+                        panelsRepository == null -> Text(localizedString("Connect to a server to manage active-server settings."), style = MaterialTheme.typography.bodySmall)
                         state.isLoadingServerSettings -> CircularProgressIndicator(strokeWidth = 2.dp)
                         else -> {
-                            DetailLine("Status", if (loggedIn != null) "Signed in" else "Signed out")
-                            DetailLine("URL", loggedIn?.server?.toString() ?: "Not configured")
-                            DetailLine("Version", state.serverSettings?.webuiVersion ?: "Unknown")
-                            state.serverSettings?.botName?.takeIf { it.isNotBlank() }?.let { DetailLine("Bot Name", it) }
+                            DetailLine(localizedString("Status"), if (loggedIn != null) "Signed in" else "Signed out")
+                            DetailLine(localizedString("URL"), loggedIn?.server?.toString() ?: "Not configured")
+                            DetailLine(localizedString("Version"), state.serverSettings?.webuiVersion ?: "Unknown")
+                            state.serverSettings?.botName?.takeIf { it.isNotBlank() }?.let { DetailLine(localizedString("Bot Name"), it) }
                             ServerUpdateControls(state, viewModel)
                             Spacer(Modifier.height(12.dp))
                             SettingsPickerSummaryRow(
-                                title = "Default Model",
+                                title = localizedString("Default Model"),
                                 value = defaultModelLabel(state),
                                 onClick = viewModel::openDefaultModelPicker,
                                 enabled = !state.isLoadingServerSettings,
                             )
                             Spacer(Modifier.height(12.dp))
                             SettingsPickerSummaryRow(
-                                title = "Default Profile",
+                                title = localizedString("Default Profile"),
                                 value = defaultProfileLabel(state),
                                 onClick = viewModel::openDefaultProfilePicker,
                                 enabled = !state.isLoadingServerSettings,
@@ -444,7 +457,7 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Android & Shortcuts") {
                     SettingsActionRow(
-                        label = "Open Hermex Settings",
+                        label = localizedString("Open Hermex Settings"),
                         value = "Permissions, notifications, and app shortcuts",
                         onClick = { openAndroidAppSettings(context) },
                     )
@@ -453,33 +466,33 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Sessions") {
                     SettingsToggleRow(
-                        label = "Message Count",
+                        label = localizedString("Message Count"),
                         value = state.sessionRowDisplaySettings.showMessageCount,
                         onValueChange = viewModel::setSessionRowShowMessageCount,
                     )
                     SettingsToggleRow(
-                        label = "Workspace",
+                        label = localizedString("Workspace"),
                         value = state.sessionRowDisplaySettings.showWorkspace,
                         onValueChange = viewModel::setSessionRowShowWorkspace,
                     )
                     SettingsToggleRow(
-                        label = "Cron Sessions",
+                        label = localizedString("Cron Sessions"),
                         value = state.sessionRowDisplaySettings.showCronSessions,
                         onValueChange = viewModel::setShowCronSessions,
                     )
                     SettingsToggleRow(
-                        label = "CLI Sessions",
+                        label = localizedString("CLI Sessions"),
                         value = state.showCliSessions,
                         enabled = !state.isSavingCliSessions,
                         switchTestTag = "cli_sessions_switch",
                         onValueChange = viewModel::setShowCliSessions,
                     )
                     state.cliSessionsError?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text(localizedString(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } ?: run {
                         if (state.cliSessionsServerSynced) {
                             Text(
-                                "CLI session visibility is synced with this server, so the WebUI follows it too.",
+                                localizedString("CLI session visibility is synced with this server, so the WebUI follows it too."),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.secondary,
                             )
@@ -490,7 +503,7 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Offline Data") {
                     Text(
-                        "Cached sessions and messages are scoped to the active server for offline viewing.",
+                        localizedString("Cached sessions and messages are scoped to the active server for offline viewing."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -498,15 +511,15 @@ fun SettingsRoute(
             }
             item {
                 SettingsSection(title = "App") {
-                    SettingsInfoRow("Version", appInfo.version)
-                    SettingsInfoRow("Build", appInfo.build)
+                    SettingsInfoRow(localizedString("Version"), appInfo.version)
+                    SettingsInfoRow(localizedString("Build"), appInfo.build)
                     SettingsActionRow(
-                        label = "Privacy Policy",
+                        label = localizedString("Privacy Policy"),
                         value = "Open in browser",
                         onClick = { openExternalUrl(context, HermexAppLinks.PRIVACY_POLICY_URL) },
                     )
                     SettingsActionRow(
-                        label = "Support",
+                        label = localizedString("Support"),
                         value = "Open in browser",
                         onClick = { openExternalUrl(context, HermexAppLinks.SUPPORT_URL) },
                     )
@@ -521,7 +534,7 @@ fun SettingsRoute(
             item {
                 SettingsSection(title = "Account") {
                     Text(
-                        "Sign out clears this server's session cookies. The server registry remains available so you can reconnect quickly.",
+                        localizedString("Sign out clears this server's session cookies. The server registry remains available so you can reconnect quickly."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -550,13 +563,13 @@ private fun SettingsHeader(onBack: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         HermexIconButton(
-            label = "Back",
+            label = localizedString("Back"),
             symbol = "<",
             onClick = onBack,
             modifier = Modifier.align(Alignment.CenterStart),
         )
         Text(
-            "Settings",
+            stringResource(R.string.settings_title),
             modifier = Modifier.align(Alignment.Center),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
@@ -573,7 +586,7 @@ private fun SettingsSection(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = title.uppercase(),
+            text = localizedString(title).uppercase(),
             modifier = Modifier.padding(start = 8.dp, bottom = 7.dp),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
@@ -641,10 +654,10 @@ private fun ServerAccountRow(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HermexPillButton("Edit Identity", onEditIdentity)
+            HermexPillButton(localizedString("Edit Identity"), onEditIdentity)
             HermexPillButton("Headers ($headerCount)", onEditHeaders)
-            HermexPillButton("Clear Cache", onClearCache)
-            HermexPillButton("Forget", onForget)
+            HermexPillButton(localizedString("Clear Cache"), onClearCache)
+            HermexPillButton(localizedString("Forget"), onForget)
         }
     }
 }
@@ -668,9 +681,9 @@ private fun IdentitySummary(
             modifier = Modifier.size(56.dp),
         )
         Column(Modifier.weight(1f)) {
-            Text("Sessions Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(localizedString("Sessions Avatar"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "Stored on this device only.",
+                localizedString("Stored on this device only."),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.secondary,
             )
@@ -696,31 +709,44 @@ private fun EditableIdentityRow(
     value: String,
     onValueChange: (String) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    val usesStackedLayout = LocalConfiguration.current.fontScale >= 1.3f
+    val labelContent: @Composable () -> Unit = {
         Text(
-            label,
-            modifier = Modifier.weight(1f),
+            localizedString(label),
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
         )
+    }
+    val fieldContent: @Composable (Modifier) -> Unit = { modifier ->
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(
                 color = MaterialTheme.colorScheme.secondary,
-                textAlign = TextAlign.End,
+                textAlign = if (usesStackedLayout) TextAlign.Start else TextAlign.End,
             ),
-            modifier = Modifier
-                .widthIn(min = 110.dp, max = 230.dp)
+            modifier = modifier
                 .testTag("identity_${label.lowercase().replace(' ', '_')}"),
         )
+    }
+    if (usesStackedLayout) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            labelContent()
+            fieldContent(Modifier.fillMaxWidth())
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f)) { labelContent() }
+            fieldContent(Modifier.widthIn(min = 110.dp, max = 230.dp))
+        }
     }
 }
 
@@ -764,14 +790,15 @@ private fun SettingsAccessoryRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(54.dp)
+            .heightIn(min = 54.dp)
+            .padding(vertical = 6.dp)
             .clickable(onClick = onClick),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SettingsLeadingIcon(iconRes)
         Text(
-            label,
+            localizedString(label),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
@@ -801,21 +828,20 @@ private fun SettingsPickerRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SettingsLeadingIcon(iconRes)
-        Text(
-            label,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            value,
-            modifier = Modifier.widthIn(max = 150.dp),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.End,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                localizedString(label),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Image(
             painter = painterResource(R.drawable.ic_hermex_chevron_down),
             contentDescription = null,
@@ -847,7 +873,7 @@ private fun HeaderLogoColorSettings(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Header Logo Color", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(localizedString("Header Logo Color"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(selectedName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
     }
     Box(
@@ -915,7 +941,7 @@ private fun HeaderLogoColorSettings(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Custom", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+        Text(localizedString("Custom"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
         Box(
             modifier = Modifier
                 .size(30.dp)
@@ -928,13 +954,13 @@ private fun HeaderLogoColorSettings(
         val normalized = normalizeCustomHeaderHex(customHexDraft)
         AlertDialog(
             onDismissRequest = { customDialogVisible = false },
-            title = { Text("Custom Header Color") },
+            title = { Text(localizedString("Custom Header Color")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     OutlinedTextField(
                         value = customHexDraft,
                         onValueChange = { customHexDraft = it.take(7) },
-                        label = { Text("Hex color") },
+                        label = { Text(localizedString("Hex color")) },
                         placeholder = { Text("#FFD700") },
                         singleLine = true,
                         modifier = Modifier
@@ -962,11 +988,11 @@ private fun HeaderLogoColorSettings(
                     },
                     enabled = normalized != null,
                 ) {
-                    Text("Apply")
+                    Text(localizedString("Apply"))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { customDialogVisible = false }) { Text("Cancel") }
+                TextButton(onClick = { customDialogVisible = false }) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -996,7 +1022,7 @@ private fun AppIconSettingsPicker(
     ) {
         AppIconPreview(selected)
         Column(Modifier.weight(1f)) {
-            Text("App Icon", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(localizedString("App Icon"), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Text(selected.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
         Text(
@@ -1046,9 +1072,9 @@ private fun AppIconChoiceRow(
     ) {
         AppIconPreview(choice)
         Column(Modifier.weight(1f)) {
-            Text(choice.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(localizedString(choice.title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                choice.subtitle,
+                localizedString(choice.subtitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
@@ -1149,7 +1175,7 @@ private fun SettingsToggleRow(
     ) {
         iconRes?.let { SettingsLeadingIcon(it) }
         Text(
-            label,
+            localizedString(label),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
@@ -1176,7 +1202,7 @@ private fun SettingsInfoRow(label: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Text(localizedString(label), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         Text(
             value,
             modifier = Modifier.padding(start = 12.dp).weight(1f),
@@ -1204,7 +1230,7 @@ private fun SettingsActionRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Text(localizedString(label), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         Text(
             value,
             modifier = Modifier.padding(start = 12.dp).weight(1f),
@@ -1219,7 +1245,7 @@ private fun SettingsActionRow(
 
 @Composable
 private fun DetailLine(label: String, value: String) {
-    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+    Text(localizedString(label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
     Text(
         value,
         style = MaterialTheme.typography.bodyMedium,
@@ -1231,7 +1257,7 @@ private fun DetailLine(label: String, value: String) {
 @Composable
 private fun StatusText(text: String, isError: Boolean) {
     Text(
-        text = text,
+        text = localizedString(text),
         color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
         style = MaterialTheme.typography.bodySmall,
     )
@@ -1275,10 +1301,10 @@ private fun SettingsDialogs(
             shape = HermexGlassShape,
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::cancelServerUpdate,
-            title = { Text("Update server?") },
-            text = { Text("This pulls the latest Hermes server version and restarts it. Active chats may be interrupted briefly; the app reconnects when the server is back.") },
-            confirmButton = { TextButton(onClick = viewModel::applyServerUpdate) { Text("Update") } },
-            dismissButton = { TextButton(onClick = viewModel::cancelServerUpdate) { Text("Cancel") } },
+            title = { Text(localizedString("Update server?")) },
+            text = { Text(localizedString("This pulls the latest Hermes server version and restarts it. Active chats may be interrupted briefly; the app reconnects when the server is back.")) },
+            confirmButton = { TextButton(onClick = viewModel::applyServerUpdate) { Text(localizedString("Update")) } },
+            dismissButton = { TextButton(onClick = viewModel::cancelServerUpdate) { Text(localizedString("Cancel")) } },
         )
     }
 
@@ -1299,15 +1325,15 @@ private fun SettingsDialogs(
                             viewModel.applyServerUpdate()
                         },
                     ) {
-                        Text("Update")
+                        Text(localizedString("Update"))
                     }
                 } else {
-                    TextButton(onClick = viewModel::dismissForcedUpdateCheckResult) { Text("OK") }
+                    TextButton(onClick = viewModel::dismissForcedUpdateCheckResult) { Text(localizedString("OK")) }
                 }
             },
             dismissButton = {
                 if (outcome is ForcedUpdateCheckOutcome.UpdateAvailable) {
-                    TextButton(onClick = viewModel::dismissForcedUpdateCheckResult) { Text("Dismiss") }
+                    TextButton(onClick = viewModel::dismissForcedUpdateCheckResult) { Text(localizedString("Dismiss")) }
                 }
             },
         )
@@ -1354,14 +1380,14 @@ private fun SettingsDialogs(
             shape = HermexGlassShape,
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::cancelClearCache,
-            title = { Text("Clear Offline Cache?") },
+            title = { Text(localizedString("Clear Offline Cache?")) },
             text = { Text("Remove cached sessions and messages for ${server.displayName}. Server data is not changed.") },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmClearCache, enabled = !state.isClearingCache) {
                     Text(if (state.isClearingCache) "Clearing..." else "Clear")
                 }
             },
-            dismissButton = { TextButton(onClick = viewModel::cancelClearCache) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = viewModel::cancelClearCache) { Text(localizedString("Cancel")) } },
         )
     }
 
@@ -1371,7 +1397,7 @@ private fun SettingsDialogs(
             shape = HermexGlassShape,
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::cancelForgetServer,
-            title = { Text("Forget Server?") },
+            title = { Text(localizedString("Forget Server?")) },
             text = { Text("Remove ${server.displayName}, its encrypted headers, cookies, offline cache, and saved registry entry. Sign in again to add it back.") },
             confirmButton = {
                 TextButton(
@@ -1381,7 +1407,7 @@ private fun SettingsDialogs(
                     Text(if (state.isForgettingServer) "Removing..." else "Forget")
                 }
             },
-            dismissButton = { TextButton(onClick = viewModel::cancelForgetServer) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = viewModel::cancelForgetServer) { Text(localizedString("Cancel")) } },
         )
     }
 }
@@ -1404,7 +1430,7 @@ private fun DefaultModelPickerDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text("Default Model") },
+        title = { Text(localizedString("Default Model")) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1415,7 +1441,7 @@ private fun DefaultModelPickerDialog(
                     onValueChange = { searchText = it },
                     modifier = Modifier.fillMaxWidth().testTag("default_model_search"),
                     singleLine = true,
-                    label = { Text("Search models") },
+                    label = { Text(localizedString("Search models")) },
                     enabled = !state.isSavingDefaultModel,
                 )
                 state.defaultModelPickerError?.let { StatusText(it, isError = true) }
@@ -1424,8 +1450,8 @@ private fun DefaultModelPickerDialog(
                     onValueChange = { customModel = it },
                     modifier = Modifier.fillMaxWidth().testTag("default_model_custom"),
                     singleLine = true,
-                    label = { Text("Custom model ID") },
-                    supportingText = { Text("Type the exact model ID the server expects.") },
+                    label = { Text(localizedString("Custom model ID")) },
+                    supportingText = { Text(localizedString("Type the exact model ID the server expects.")) },
                     enabled = !state.isSavingDefaultModel,
                 )
                 HermexPillButton(
@@ -1438,12 +1464,12 @@ private fun DefaultModelPickerDialog(
                 if (state.isLoadingLiveModels) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                        Text("Refreshing live models...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        Text(localizedString("Refreshing live models..."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                 }
                 when {
-                    state.models.isEmpty() -> Text("No models returned by the server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-                    groups.isEmpty() -> Text("No matching models.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    state.models.isEmpty() -> Text(localizedString("No models returned by the server."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    groups.isEmpty() -> Text(localizedString("No matching models."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     else -> groups.forEach { group ->
                         Text(group.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
                         group.models.forEach { model ->
@@ -1458,7 +1484,7 @@ private fun DefaultModelPickerDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss, enabled = !state.isSavingDefaultModel) { Text("Done") } },
+        confirmButton = { TextButton(onClick = onDismiss, enabled = !state.isSavingDefaultModel) { Text(localizedString("Done")) } },
     )
 }
 
@@ -1472,7 +1498,10 @@ private fun ServerUpdateControls(
     Spacer(Modifier.height(10.dp))
     when (val updateState = state.serverUpdateState) {
         WebUiUpdateState.UpToDate -> StatusText("Up to date", isError = false)
-        is WebUiUpdateState.UpdateAvailable -> StatusText("Update available - ${updateState.behind} behind", isError = false)
+        is WebUiUpdateState.UpdateAvailable -> StatusText(
+            localizedStringFormat("Update available · %lld behind", updateState.behind),
+            isError = false,
+        )
         WebUiUpdateState.Unavailable,
         null,
         -> Unit
@@ -1490,7 +1519,7 @@ private fun ServerUpdateControls(
         )
         if (state.updateApplyPhase == ServerUpdateApplyPhase.Idle && state.serverUpdateState is WebUiUpdateState.UpdateAvailable) {
             HermexPillButton(
-                label = "Update",
+                label = localizedString("Update"),
                 onClick = viewModel::requestServerUpdate,
                 enabled = !state.isCheckingForUpdates,
                 filled = true,
@@ -1502,7 +1531,7 @@ private fun ServerUpdateControls(
             ServerUpdateApplyPhase.Blocked,
             ServerUpdateApplyPhase.Failed,
             -> HermexPillButton(
-                label = "Retry update",
+                label = localizedString("Retry update"),
                 onClick = viewModel::requestServerUpdate,
                 enabled = !state.isCheckingForUpdates,
             )
@@ -1519,7 +1548,7 @@ private fun ServerUpdateControls(
 private fun UpdateProgressPill(label: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Text(localizedString(label), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
     }
 }
 
@@ -1578,7 +1607,7 @@ private fun DefaultProfilePickerDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text("Default Profile") },
+        title = { Text(localizedString("Default Profile")) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1589,21 +1618,21 @@ private fun DefaultProfilePickerDialog(
                     onValueChange = { searchText = it },
                     modifier = Modifier.fillMaxWidth().testTag("default_profile_search"),
                     singleLine = true,
-                    label = { Text("Search profiles") },
+                    label = { Text(localizedString("Search profiles")) },
                     enabled = !state.isSavingDefaultProfile,
                 )
                 state.defaultProfilePickerError?.let { StatusText(it, isError = true) }
                 if (!state.isSingleProfileMode) {
                     HermexPillButton(
-                        label = "New Profile",
+                        label = localizedString("New Profile"),
                         onClick = onCreateProfile,
                         enabled = !state.isSavingDefaultProfile,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 when {
-                    state.profiles.isEmpty() -> Text("No profiles returned by the server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-                    profiles.isEmpty() -> Text("No matching profiles.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    state.profiles.isEmpty() -> Text(localizedString("No profiles returned by the server."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    profiles.isEmpty() -> Text(localizedString("No matching profiles."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     else -> profiles.forEach { profile ->
                         DefaultProfileOptionRow(
                             profile = profile,
@@ -1615,7 +1644,7 @@ private fun DefaultProfilePickerDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss, enabled = !state.isSavingDefaultProfile) { Text("Done") } },
+        confirmButton = { TextButton(onClick = onDismiss, enabled = !state.isSavingDefaultProfile) { Text(localizedString("Done")) } },
     )
 }
 
@@ -1639,7 +1668,7 @@ private fun DefaultProfileOptionRow(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(profile.settingsDisplayName(), style = MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
                 if (!selected && profile.isDefault == true) {
-                    Text("Server Default", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(localizedString("Server Default"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
             profile.settingsDetails()?.let {
@@ -1670,7 +1699,7 @@ private fun CreateProfileDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text("New Profile") },
+        title = { Text(localizedString("New Profile")) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1681,13 +1710,13 @@ private fun CreateProfileDialog(
                     onValueChange = { name = it },
                     modifier = Modifier.fillMaxWidth().testTag("new_profile_name"),
                     singleLine = true,
-                    label = { Text("Profile name") },
-                    supportingText = { Text("Lowercase letters, numbers, hyphens, and underscores.") },
+                    label = { Text(localizedString("Profile name")) },
+                    supportingText = { Text(localizedString("Lowercase letters, numbers, hyphens, and underscores.")) },
                     enabled = !state.isCreatingProfile,
                     isError = name.isNotBlank() && !ProfileNameRules.isValid(normalizedName),
                 )
                 SettingsToggleRow(
-                    label = "Clone config from active profile",
+                    label = localizedString("Clone config from active profile"),
                     value = cloneConfig,
                     enabled = !state.isCreatingProfile,
                     onValueChange = { cloneConfig = it },
@@ -1697,8 +1726,8 @@ private fun CreateProfileDialog(
                     onValueChange = { defaultModel = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Default model") },
-                    placeholder = { Text("Use active profile default") },
+                    label = { Text(localizedString("Default model")) },
+                    placeholder = { Text(localizedString("Use active profile default")) },
                     enabled = !state.isCreatingProfile,
                 )
                 OutlinedTextField(
@@ -1706,8 +1735,8 @@ private fun CreateProfileDialog(
                     onValueChange = { modelProvider = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Model provider") },
-                    placeholder = { Text("Optional") },
+                    label = { Text(localizedString("Model provider")) },
+                    placeholder = { Text(localizedString("Optional")) },
                     enabled = !state.isCreatingProfile,
                 )
                 OutlinedTextField(
@@ -1715,7 +1744,7 @@ private fun CreateProfileDialog(
                     onValueChange = { baseUrl = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Base URL") },
+                    label = { Text(localizedString("Base URL")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     supportingText = { Text(if (invalidBaseUrl) "Base URL must start with http:// or https://." else "Optional. Example: http://localhost:11434") },
                     isError = invalidBaseUrl,
@@ -1726,7 +1755,7 @@ private fun CreateProfileDialog(
                     onValueChange = { apiKey = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("API key") },
+                    label = { Text(localizedString("API key")) },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     enabled = !state.isCreatingProfile,
@@ -1742,7 +1771,7 @@ private fun CreateProfileDialog(
                 Text(if (state.isCreatingProfile) "Creating..." else "Create")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !state.isCreatingProfile) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !state.isCreatingProfile) { Text(localizedString("Cancel")) } },
     )
 }
 
@@ -1759,7 +1788,7 @@ private fun IdentityEditorDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text("Server Identity") },
+        title = { Text(localizedString("Server Identity")) },
         text = {
             ServerIdentityFields(
                 displayName = draft.displayName,
@@ -1771,8 +1800,8 @@ private fun IdentityEditorDialog(
                 onColorChange = { onDraftChange(draft.copy(headerLogoColorHex = it)) },
             )
         },
-        confirmButton = { TextButton(onClick = onSave) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onSave) { Text(localizedString("Save")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(localizedString("Cancel")) } },
     )
 }
 
@@ -1790,7 +1819,7 @@ private fun HeaderEditorDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text("Custom Headers") },
+        title = { Text(localizedString("Custom Headers")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -1806,16 +1835,16 @@ private fun HeaderEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 4,
                     maxLines = 8,
-                    label = { Text("Name: Value") },
+                    label = { Text(localizedString("Name: Value")) },
                     supportingText = {
-                        Text(error ?: "One header per line. Origin, Referer, Host, and Content-Length are blocked.")
+                        Text(localizedString(error ?: "One header per line. Origin, Referer, Host, and Content-Length are blocked."))
                     },
                     isError = error != null,
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onSave) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onSave) { Text(localizedString("Save")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(localizedString("Cancel")) } },
     )
 }
 
@@ -1836,7 +1865,7 @@ private fun AddServerDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text("Add Server") },
+        title = { Text(localizedString("Add Server")) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1847,7 +1876,7 @@ private fun AddServerDialog(
                     onValueChange = onUrlChange,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Server URL") },
+                    label = { Text(localizedString("Server URL")) },
                     placeholder = { Text("100.64.0.1:8787") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     enabled = !state.isAddingServer,
@@ -1858,13 +1887,13 @@ private fun AddServerDialog(
                         onValueChange = onPasswordChange,
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("Password") },
+                        label = { Text(localizedString("Password")) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         enabled = !state.isAddingServer,
                     )
                     Text(
-                        "This server requires a password.",
+                        localizedString("This server requires a password."),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -1875,11 +1904,11 @@ private fun AddServerDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
                     maxLines = 6,
-                    label = { Text("Custom Headers") },
+                    label = { Text(localizedString("Custom Headers")) },
                     placeholder = { Text("CF-Access-Client-Id: ...") },
                     enabled = !state.isAddingServer,
                 )
-                Text("Identity", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text(localizedString("Identity"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 ServerIdentityFields(
                     displayName = state.addServerDisplayName,
                     initials = state.addServerInitials,
@@ -1891,7 +1920,7 @@ private fun AddServerDialog(
                     enabled = !state.isAddingServer,
                 )
                 state.addServerError?.let { error ->
-                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Text(localizedString(error), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
             }
         },
@@ -1904,7 +1933,7 @@ private fun AddServerDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !state.isAddingServer) { Text("Cancel") }
+            TextButton(onClick = onDismiss, enabled = !state.isAddingServer) { Text(localizedString("Cancel")) }
         },
     )
 }
@@ -1934,7 +1963,7 @@ private fun ServerIdentityFields(
                 modifier = Modifier.size(42.dp),
             )
             Column(Modifier.weight(1f)) {
-                Text("Server Avatar", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(localizedString("Server Avatar"), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text(
                     previewInitials,
                     style = MaterialTheme.typography.bodySmall,
@@ -1947,7 +1976,7 @@ private fun ServerIdentityFields(
             onValueChange = onDisplayNameChange,
             modifier = Modifier.fillMaxWidth().testTag("server_identity_display_name"),
             singleLine = true,
-            label = { Text("Display Name") },
+            label = { Text(localizedString("Display Name")) },
             placeholder = { Text(fallbackName.ifBlank { "Hermex" }) },
             enabled = enabled,
         )
@@ -1956,11 +1985,11 @@ private fun ServerIdentityFields(
             onValueChange = onInitialsChange,
             modifier = Modifier.fillMaxWidth().testTag("server_identity_initials"),
             singleLine = true,
-            label = { Text("Initials") },
+            label = { Text(localizedString("Initials")) },
             placeholder = { Text(previewInitials) },
             enabled = enabled,
         )
-        Text("Header Color", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+        Text(localizedString("Header Color"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),

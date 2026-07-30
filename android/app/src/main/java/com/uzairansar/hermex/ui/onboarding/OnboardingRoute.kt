@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.view.HapticFeedbackConstants
 import androidx.annotation.DrawableRes
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -62,6 +64,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -89,6 +92,7 @@ import com.uzairansar.hermex.ui.theme.LocalHermexHapticsEnabled
 import com.uzairansar.hermex.ui.theme.hermexGlass
 import com.uzairansar.hermex.ui.theme.hermexHazeSource
 import kotlinx.coroutines.launch
+import com.uzairansar.hermex.ui.localization.localizedString
 
 private val OnboardingGold = Color(0xFFFFBD1A)
 private val OnboardingGreen = Color(0xFF73EB8F)
@@ -227,15 +231,15 @@ private fun OnboardingRouteContent(
     if (isShowingCopyReminder) {
         AlertDialog(
             onDismissRequest = { isShowingCopyReminder = false },
-            title = { Text("Copy the setup prompt first") },
+            title = { Text(localizedString("Copy the setup prompt first")) },
             text = {
                 Text(
-                    "Copy the agent setup prompt on your desktop before continuing so Hermes Web UI and Tailscale are configured correctly.",
+                    localizedString("Copy the agent setup prompt on your desktop before continuing so Hermes Web UI and Tailscale are configured correctly."),
                 )
             },
             dismissButton = {
                 TextButton(onClick = { isShowingCopyReminder = false }) {
-                    Text("Stay Here")
+                    Text(localizedString("Stay Here"))
                 }
             },
             confirmButton = {
@@ -251,7 +255,7 @@ private fun OnboardingRouteContent(
                         }
                     },
                 ) {
-                    Text("Continue Anyway")
+                    Text(localizedString("Continue Anyway"))
                 }
             },
         )
@@ -260,77 +264,148 @@ private fun OnboardingRouteContent(
 
 @Composable
 private fun OnboardingWelcomePage() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Spacer(Modifier.weight(1f))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(250.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                Modifier
-                    .size(248.dp)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                OnboardingGold.copy(alpha = 0.36f),
-                                Color(0xFFFF9E14).copy(alpha = 0.14f),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val needsScrollablePortrait = configuration.fontScale >= 1.3f
+
+    when {
+        isLandscape -> Row(Modifier.fillMaxSize()) {
+            WelcomeHero(
+                modifier = Modifier.weight(0.42f).fillMaxHeight(),
+                glowSize = 190.dp,
+                iconSize = 104.dp,
             )
-            Image(
-                painter = painterResource(R.drawable.hermex_app_icon),
-                contentDescription = "Hermex",
-                contentScale = ContentScale.Fit,
+            WelcomeCopy(
                 modifier = Modifier
-                    .size(124.dp)
-                    .clip(RoundedCornerShape(27.dp))
-                    .border(
-                        width = 1.dp,
-                        brush = Brush.linearGradient(
-                            listOf(Color.White.copy(alpha = 0.25f), Color.White.copy(alpha = 0.04f)),
-                        ),
-                        shape = RoundedCornerShape(27.dp),
-                    ),
+                    .weight(0.58f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
+                stacksBadges = configuration.fontScale >= 1.3f,
+                compact = true,
             )
         }
-        Spacer(Modifier.weight(1f))
-        Column(
+
+        needsScrollablePortrait -> Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 28.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 20.dp, bottom = 24.dp),
         ) {
-            Text(
-                text = "Control your Hermes agent from Android.",
-                color = Color.White,
-                fontSize = 31.sp,
-                lineHeight = 37.sp,
-                fontWeight = FontWeight.Bold,
+            WelcomeHero(
+                modifier = Modifier.fillMaxWidth().height(210.dp),
+                glowSize = 210.dp,
+                iconSize = 112.dp,
             )
-            Text(
-                text = "Connect to your self-hosted Web UI over Tailscale.",
-                color = Color.White.copy(alpha = 0.58f),
-                style = MaterialTheme.typography.bodyMedium,
+            WelcomeCopy(
+                modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                stacksBadges = true,
+                compact = false,
             )
+        }
+
+        else -> Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Spacer(Modifier.weight(1f))
+            WelcomeHero(
+                modifier = Modifier.fillMaxWidth().height(250.dp),
+                glowSize = 248.dp,
+                iconSize = 124.dp,
+            )
+            Spacer(Modifier.weight(1f))
+            WelcomeCopy(
+                modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                stacksBadges = false,
+                compact = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WelcomeHero(
+    modifier: Modifier,
+    glowSize: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(glowSize)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            OnboardingGold.copy(alpha = 0.36f),
+                            Color(0xFFFF9E14).copy(alpha = 0.14f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Image(
+            painter = painterResource(R.drawable.hermex_app_icon),
+            contentDescription = "Hermex",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .size(iconSize)
+                .clip(RoundedCornerShape(27.dp))
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        listOf(Color.White.copy(alpha = 0.25f), Color.White.copy(alpha = 0.04f)),
+                    ),
+                    shape = RoundedCornerShape(27.dp),
+                ),
+        )
+    }
+}
+
+@Composable
+private fun WelcomeCopy(
+    modifier: Modifier,
+    stacksBadges: Boolean,
+    compact: Boolean,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = localizedString("Control your Hermes agent from Android."),
+            color = Color.White,
+            fontSize = if (compact) 25.sp else 31.sp,
+            lineHeight = if (compact) 30.sp else 37.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = localizedString("Connect to your self-hosted Web UI over Tailscale."),
+            color = Color.White.copy(alpha = 0.58f),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (stacksBadges) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                WelcomeBadges()
+            }
+        } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HeroBadge(
-                    icon = R.drawable.ic_hermex_exclamation_triangle,
-                    title = "Password protected",
-                )
-                HeroBadge(
-                    icon = R.drawable.ic_hermex_git_branch,
-                    title = "Tailscale ready",
-                )
+                WelcomeBadges()
             }
         }
     }
+}
+
+@Composable
+private fun WelcomeBadges() {
+    HeroBadge(
+        icon = R.drawable.ic_hermex_exclamation_triangle,
+        title = "Password protected",
+    )
+    HeroBadge(
+        icon = R.drawable.ic_hermex_git_branch,
+        title = "Tailscale ready",
+    )
 }
 
 @Composable
@@ -415,13 +490,13 @@ private fun OnboardingFeaturesPage() {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "What you get",
+                localizedString("What you get"),
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Your Hermes agent, reachable from Android over Tailscale.",
+                localizedString("Your Hermes agent, reachable from Android over Tailscale."),
                 color = Color.White.copy(alpha = 0.45f),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
@@ -562,7 +637,7 @@ private fun OnboardingTailscalePage() {
             TailscaleStep("2", "Sign in with the same account you used on your server.")
             TailscaleStep("3", "Keep Tailscale connected while using Hermex.")
             OnboardingActionButton(
-                label = "Get Tailscale on Google Play",
+                label = localizedString("Get Tailscale on Google Play"),
                 icon = R.drawable.ic_hermex_external_link,
                 primary = false,
                 contentColor = OnboardingGold,
@@ -677,20 +752,20 @@ private fun OnboardingConnectPage(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                "Connect",
+                localizedString("Connect"),
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Enter the Tailscale URL your agent returned, for example http://<tailnet-ip>:8787.",
+                localizedString("Enter the Tailscale URL your agent returned, for example http://<tailnet-ip>:8787."),
                 color = Color.White.copy(alpha = 0.5f),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OnboardingTextField(
-                label = "Server URL",
+                label = localizedString("Server URL"),
                 icon = R.drawable.ic_hermex_external_link,
                 value = state.serverUrl,
                 onValueChange = onServerUrlChange,
@@ -700,7 +775,7 @@ private fun OnboardingConnectPage(
             )
             if (state.isPasswordRequired) {
                 OnboardingTextField(
-                    label = "Password",
+                    label = localizedString("Password"),
                     icon = R.drawable.ic_hermex_lock,
                     value = state.password,
                     onValueChange = onPasswordChange,
@@ -739,7 +814,7 @@ private fun OnboardingConnectPage(
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    "Advanced",
+                    localizedString("Advanced"),
                     color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -757,7 +832,7 @@ private fun OnboardingConnectPage(
             if (isShowingAdvanced) {
                 Spacer(Modifier.height(10.dp))
                 OnboardingTextField(
-                    label = "Custom Headers",
+                    label = localizedString("Custom Headers"),
                     icon = R.drawable.ic_hermex_git_branch,
                     value = state.customHeadersText,
                     onValueChange = onCustomHeadersChange,
@@ -774,7 +849,7 @@ private fun OnboardingConnectPage(
         }
         if (state.isBusy) {
             OnboardingStatusBanner(
-                text = "Checking server...",
+                text = localizedString("Checking server..."),
                 tint = Color.White.copy(alpha = 0.7f),
                 showsProgress = true,
             )
@@ -946,7 +1021,7 @@ private fun OnboardingBottomBar(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OnboardingActionButton(
-                    label = "Test Connection",
+                    label = localizedString("Test Connection"),
                     icon = R.drawable.ic_hermex_refresh,
                     primary = false,
                     enabled = !isBusy && canSubmitConnection,
@@ -954,7 +1029,7 @@ private fun OnboardingBottomBar(
                     onClick = onTestConnection,
                 )
                 OnboardingActionButton(
-                    label = "Connect",
+                    label = localizedString("Connect"),
                     icon = R.drawable.ic_hermex_check_circle,
                     primary = true,
                     enabled = !isBusy && canSubmitConnection,
@@ -970,7 +1045,7 @@ private fun OnboardingBottomBar(
             )
             if (OnboardingFlowPolicy.showsServerShortcut(currentPage)) {
                 Text(
-                    text = "Already have a server?",
+                    text = localizedString("Already have a server?"),
                     color = Color.White.copy(alpha = 0.55f),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,

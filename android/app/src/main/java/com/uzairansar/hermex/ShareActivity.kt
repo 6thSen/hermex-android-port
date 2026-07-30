@@ -25,9 +25,7 @@ class ShareActivity : ComponentActivity() {
             val store = SharedDraftStore(this@ShareActivity)
             val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
             val subject = intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT)?.toString().orEmpty()
-            val uris = mutableListOf<Uri>()
-            intent.streamUri()?.let(uris::add)
-            intent.streamUris()?.let(uris::addAll)
+            val uris = intent.sharedAttachmentUris()
             val (saved, rejectedAttachmentCount) = withContext(Dispatchers.IO) {
                 var rejected = (uris.size - SharedDraftPolicy.MAXIMUM_SHARED_ATTACHMENT_COUNT).coerceAtLeast(0)
                 val attachments = buildList {
@@ -105,19 +103,29 @@ class ShareActivity : ComponentActivity() {
         return null
     }
 
-    private fun Intent.streamUri(): Uri? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            getParcelableExtra(Intent.EXTRA_STREAM)
-        }
-
-    private fun Intent.streamUris(): ArrayList<Uri>? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            getParcelableArrayListExtra(Intent.EXTRA_STREAM)
-        }
 }
+
+internal fun Intent.sharedAttachmentUris(): List<Uri> = buildList {
+    streamUriCompat()?.let(::add)
+    streamUrisCompat()?.let(::addAll)
+    data?.let(::add)
+    clipData?.let { clips ->
+        repeat(clips.itemCount) { index -> clips.getItemAt(index).uri?.let(::add) }
+    }
+}.distinctBy(Uri::toString)
+
+private fun Intent.streamUriCompat(): Uri? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        getParcelableExtra(Intent.EXTRA_STREAM)
+    }
+
+private fun Intent.streamUrisCompat(): ArrayList<Uri>? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+    }

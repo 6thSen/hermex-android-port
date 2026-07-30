@@ -51,4 +51,21 @@ class WorkspaceFilePreviewPolicyTest {
         assertTrue(shouldRenderWorkspaceTextPreview("content"))
         assertFalse(shouldRenderWorkspaceTextPreview(null))
     }
+
+    @Test
+    fun fileBadgesAndKindLabelsReflectTheActualFileType() {
+        assertEquals("DIR", WorkspaceFilePreviewPolicy.badgeLabel("/repo/src", isDirectory = true))
+        assertEquals("JSON", WorkspaceFilePreviewPolicy.badgeLabel("settings.json"))
+        assertEquals("IMG", WorkspaceFilePreviewPolicy.badgeLabel("photo.webp"))
+        assertEquals("CODE", WorkspaceFilePreviewPolicy.badgeLabel("MainActivity.kt"))
+        assertEquals("Audio", WorkspaceFilePreviewPolicy.kindLabel("voice.m4a"))
+        assertEquals("Source code", WorkspaceFilePreviewPolicy.kindLabel("main.swift"))
+    }
+
+    @Test
+    fun fileSizesUseReadableUnits() {
+        assertEquals("999 bytes", fileSizeText(999))
+        assertEquals("1.5 KB", fileSizeText(1_500))
+        assertEquals("2.5 MB", fileSizeText(2_500_000))
+    }
 }

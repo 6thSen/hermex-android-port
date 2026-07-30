@@ -40,13 +40,14 @@ import com.uzairansar.hermex.core.model.GitDiffResponse
 import com.uzairansar.hermex.ui.theme.HermexPillButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.uzairansar.hermex.ui.localization.localizedString
 
 @Composable
 fun HermexGitDiffContent(diff: GitDiffResponse) {
     when {
-        diff.binary == true -> Text("Binary file changed.", style = MaterialTheme.typography.bodySmall)
-        diff.isTooLarge -> Text("Diff too large to show.", style = MaterialTheme.typography.bodySmall)
-        diff.diff.isNullOrBlank() -> Text("No changes.", style = MaterialTheme.typography.bodySmall)
+        diff.binary == true -> Text(localizedString("Binary file changed."), style = MaterialTheme.typography.bodySmall)
+        diff.isTooLarge -> Text(localizedString("Diff too large to show."), style = MaterialTheme.typography.bodySmall)
+        diff.diff.isNullOrBlank() -> Text(localizedString("No changes."), style = MaterialTheme.typography.bodySmall)
         else -> {
             val hunks by produceState<List<DiffHunk>?>(initialValue = null, diff.diff) {
                 value = withContext(Dispatchers.Default) { DiffHunkParser.parse(diff.diff.orEmpty()) }
@@ -55,7 +56,7 @@ fun HermexGitDiffContent(diff: GitDiffResponse) {
             if (resolvedHunks == null) {
                 CircularProgressIndicator(strokeWidth = 2.dp)
             } else if (resolvedHunks.isEmpty()) {
-                Text("No changes.", style = MaterialTheme.typography.bodySmall)
+                Text(localizedString("No changes."), style = MaterialTheme.typography.bodySmall)
             } else {
                 var collapsedHunks by remember(diff.diff) { mutableStateOf(emptySet<Int>()) }
                 val additions = diff.additions ?: resolvedHunks.sumOf { it.additions }
@@ -65,7 +66,7 @@ fun HermexGitDiffContent(diff: GitDiffResponse) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("1 file changed", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text(localizedString("1 file changed"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     Text("+$additions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
                     Text("-$deletions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                     HermexPillButton(

@@ -13,6 +13,7 @@ import com.uzairansar.hermex.core.model.CompressionAnchorResolver
 import com.uzairansar.hermex.core.model.CompressionReferenceCard
 import com.uzairansar.hermex.core.model.ContextWindowSnapshot
 import com.uzairansar.hermex.core.model.FileResponse
+import com.uzairansar.hermex.core.model.MessageAttachment
 import com.uzairansar.hermex.core.model.MessageActionContext
 import com.uzairansar.hermex.core.model.MessageActionContextResolver
 import com.uzairansar.hermex.core.model.MessageActionRole
@@ -76,8 +77,13 @@ private class SharedAttachmentUploadException(
 ) : Exception(message, cause)
 
 internal object ChatProfileSwitchPolicy {
-    fun canSwitchProfile(hasPersistedConversation: Boolean): Boolean = !hasPersistedConversation
+    fun requiresNewSessionConfirmation(hasPersistedConversation: Boolean): Boolean = hasPersistedConversation
 }
+
+data class PendingProfileSwitch(
+    val profile: ProfileSummary,
+    val consumedDraft: String? = null,
+)
 
 internal object ChatStreamOwnershipPolicy {
     fun stillOwnsStream(requestedStreamId: String, activeStreamId: String?): Boolean =
@@ -247,6 +253,7 @@ data class ChatUiState(
     val skillSuggestions: List<SlashSkillSuggestion> = emptyList(),
     val selectedModel: ModelSummary? = null,
     val selectedProfile: ProfileSummary? = null,
+    val pendingProfileSwitch: PendingProfileSwitch? = null,
     val activeProfileName: String? = null,
     val isSingleProfileMode: Boolean = false,
     val selectedReasoning: String? = null,
@@ -317,6 +324,9 @@ class ChatViewModel internal constructor(
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state
     private var streamJob: Job? = null
+    private var streamPacingJob: Job? = null
+    private var streamPacingOwnerId: String? = null
+    private var pendingStreamingAssistantText: String = ""
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
     private var sendStartJob: Job? = null
@@ -366,6 +376,7 @@ class ChatViewModel internal constructor(
     override fun onCleared() {
         isClearing = true
         streamJob?.cancel()
+        streamPacingJob?.cancel()
         streamRecoveryJob?.cancel()
         completedTranscriptRefreshJob?.cancel()
         profileSwitchJob?.cancel()
@@ -677,6 +688,16 @@ class ChatViewModel internal constructor(
         requestProfileSwitch(profile)
     }
 
+    fun dismissPendingProfileSwitch() {
+        _state.update { it.copy(pendingProfileSwitch = null) }
+    }
+
+    fun confirmProfileSwitchStartingNewSession() {
+        val pending = _state.value.pendingProfileSwitch ?: return
+        _state.update { it.copy(pendingProfileSwitch = null) }
+        performProfileSwitch(pending.profile, pending.consumedDraft, startNewSession = true)
+    }
+
     private fun invalidatePendingLoad() {
         loadGeneration += 1
         loadJob?.cancel()
@@ -703,16 +724,33 @@ class ChatViewModel internal constructor(
             }
             return
         }
-        if (!ChatProfileSwitchPolicy.canSwitchProfile(snapshot.hasPersistedConversation)) {
-            _state.update { it.copy(error = "Start a new conversation to use a different profile.") }
+        if (ChatProfileSwitchPolicy.requiresNewSessionConfirmation(snapshot.hasPersistedConversation)) {
+            _state.update {
+                it.copy(
+                    pendingProfileSwitch = PendingProfileSwitch(profile, consumedDraft),
+                    error = null,
+                    notice = null,
+                )
+            }
             return
         }
+        performProfileSwitch(profile, consumedDraft, startNewSession = false)
+    }
+
+    private fun performProfileSwitch(
+        profile: ProfileSummary,
+        consumedDraft: String?,
+        startNewSession: Boolean,
+    ) {
+        val snapshot = _state.value
+        val profileName = profile.name ?: profile.displayName ?: return
         _state.update {
             it.copy(
                 draft = consumedDraft?.let { consumed -> draftAfterConsuming(it.draft, consumed) } ?: it.draft,
                 selectedProfile = profile,
                 activeProfileName = profileName,
                 sessionProfile = profileName,
+                pendingProfileSwitch = null,
                 isRunningSessionAction = true,
                 notice = null,
                 error = null,
@@ -721,23 +759,59 @@ class ChatViewModel internal constructor(
         val generation = ++profileSwitchGeneration
         profileSwitchJob?.cancel()
         profileSwitchJob = viewModelScope.launch {
+            var profileWasSwitched = false
             runCatching { repository.switchProfile(profile) }
-                .onSuccess {
+                .onSuccess { response ->
                     if (generation != profileSwitchGeneration) return@onSuccess
-                    _state.update {
-                        it.copy(
-                            isRunningSessionAction = false,
-                            notice = "Profile set to ${profile.displayName ?: profile.name}.",
+                    val switchedProfileName = response.active?.takeIf { it.isNotBlank() } ?: profileName
+                    val profileOptions = response.profiles ?: _state.value.profileOptions
+                    val selectedProfile = profileOptions.firstMatchingProfile(switchedProfileName) ?: profile
+                    val selectedWorkspace = response.defaultWorkspace?.takeIf { it.isNotBlank() }
+                        ?: _state.value.selectedWorkspacePath
+                    val selectedModel = response.defaultModel?.takeIf { it.isNotBlank() }?.let { modelName ->
+                        _state.value.modelOptions.firstMatchingModel(modelName, selectedProfile.provider)
+                    } ?: _state.value.selectedModel
+                    _state.update { current ->
+                        current.copy(
+                            profileOptions = profileOptions,
+                            selectedProfile = selectedProfile,
+                            activeProfileName = switchedProfileName,
+                            sessionProfile = switchedProfileName,
+                            selectedWorkspacePath = selectedWorkspace,
+                            selectedModel = selectedModel,
                         )
+                    }
+                    profileWasSwitched = true
+                    if (startNewSession) {
+                        val session = repository.createSession(selectedWorkspace, selectedModel, selectedProfile)
+                        val newSessionId = session?.sessionId?.takeIf { it.isNotBlank() }
+                            ?: error("The server did not return the new profile session.")
+                        if (generation != profileSwitchGeneration) return@onSuccess
+                        _state.update {
+                            it.copy(
+                                isRunningSessionAction = false,
+                                openSessionId = newSessionId,
+                                notice = "Started a new ${profile.displayName ?: profile.name} session.",
+                            )
+                        }
+                    } else {
+                        _state.update {
+                            it.copy(
+                                isRunningSessionAction = false,
+                                notice = "Profile set to ${profile.displayName ?: profile.name}.",
+                            )
+                        }
                     }
                 }
                 .onFailure { error ->
                     if (error is CancellationException || generation != profileSwitchGeneration) return@onFailure
                     _state.update {
                         it.copy(
-                            selectedProfile = snapshot.selectedProfile,
-                            activeProfileName = snapshot.activeProfileName,
-                            sessionProfile = snapshot.sessionProfile,
+                            selectedProfile = if (profileWasSwitched) it.selectedProfile else snapshot.selectedProfile,
+                            activeProfileName = if (profileWasSwitched) it.activeProfileName else snapshot.activeProfileName,
+                            sessionProfile = if (profileWasSwitched) it.sessionProfile else snapshot.sessionProfile,
+                            selectedWorkspacePath = if (profileWasSwitched) it.selectedWorkspacePath else snapshot.selectedWorkspacePath,
+                            selectedModel = if (profileWasSwitched) it.selectedModel else snapshot.selectedModel,
                             draft = draftAfterFailedConsumption(it.draft, consumedDraft),
                             isRunningSessionAction = false,
                             error = error.message ?: "Could not switch profile.",
@@ -1048,7 +1122,7 @@ class ChatViewModel internal constructor(
         runCatching {
             recorder.start {
                 viewModelScope.launch {
-                    if (_state.value.isRecordingVoiceNote) stopAndTranscribeVoiceNote(recorder)
+                    if (_state.value.isRecordingVoiceNote) stopAndSendVoiceNote(recorder)
                 }
             }
         }
@@ -1064,7 +1138,7 @@ class ChatViewModel internal constructor(
             .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not start recording.") } }
     }
 
-    fun stopAndTranscribeVoiceNote(recorder: VoiceNoteRecorder) {
+    fun stopAndSendVoiceNote(recorder: VoiceNoteRecorder) {
         val file = recorder.stop()
         _state.update { it.copy(isRecordingVoiceNote = false, voiceNoteStartedAtMillis = null) }
         if (file == null) {
@@ -1072,35 +1146,48 @@ class ChatViewModel internal constructor(
             return
         }
         viewModelScope.launch {
+            if (_state.value.isStreaming) {
+                runCatching { file.delete() }
+                _state.update { it.copy(error = "Wait for the current response to finish before sending a voice note.") }
+                return@launch
+            }
             _state.update { it.copy(isTranscribingVoiceNote = true, error = null) }
             runCatching {
                 try {
-                    repository.transcribe(file)
+                    val response = repository.transcribe(file)
+                    val transcript = response.transcript?.trim().orEmpty()
+                    require(response.error.isNullOrBlank() && transcript.isNotEmpty()) {
+                        response.error ?: "The server did not return a transcript."
+                    }
+                    val upload = repository.upload(sessionId, file, "audio/mp4")
+                    require(upload.error.isNullOrBlank() && !upload.path.isNullOrBlank()) {
+                        upload.error ?: "The server did not return the uploaded voice note path."
+                    }
+                    transcript to upload
                 } finally {
                     runCatching { file.delete() }
                 }
             }
-                .onSuccess { response ->
-                    val transcript = response.transcript?.trim().orEmpty()
-                    if (response.error != null || transcript.isEmpty()) {
+                .onSuccess { (transcript, upload) ->
+                    if (_state.value.isStreaming) {
                         _state.update {
                             it.copy(
                                 isTranscribingVoiceNote = false,
-                                error = response.error ?: "The server did not return a transcript.",
+                                error = "Wait for the current response to finish before sending a voice note.",
                             )
                         }
-                    } else {
-                        _state.update {
-                            val separator = if (it.draft.isBlank() || it.draft.endsWith("\n")) "" else "\n"
-                            it.copy(
-                                draft = "${it.draft}$separator$transcript",
-                                isTranscribingVoiceNote = false,
-                            )
-                        }
+                        return@onSuccess
                     }
+                    val snapshot = _state.value.copy(
+                        draft = transcript,
+                        pendingAttachments = listOf(upload),
+                        isTranscribingVoiceNote = false,
+                    )
+                    _state.update { it.copy(isTranscribingVoiceNote = false) }
+                    submitMessage(transcript, snapshot)
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isTranscribingVoiceNote = false, error = error.message ?: "Could not transcribe voice note.") }
+                    _state.update { it.copy(isTranscribingVoiceNote = false, error = error.message ?: "Could not send voice note.") }
                 }
         }
     }
@@ -1463,7 +1550,20 @@ class ChatViewModel internal constructor(
         val optimisticMessageId = if (appendOptimisticUser) "optimistic-${System.nanoTime()}" else null
         _state.update {
             val optimisticMessages = if (appendOptimisticUser) {
-                it.messages + ChatMessage(id = optimisticMessageId, role = "user", content = text)
+                it.messages + ChatMessage(
+                    id = optimisticMessageId,
+                    role = "user",
+                    content = text,
+                    attachments = snapshot.pendingAttachments.map { attachment ->
+                        MessageAttachment(
+                            name = attachment.filename,
+                            path = attachment.path,
+                            mime = attachment.mime,
+                            size = attachment.size?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                            isImage = attachment.isImage,
+                        )
+                    }.takeIf { attachments -> attachments.isNotEmpty() },
+                )
             } else {
                 it.messages
             }
@@ -2628,6 +2728,11 @@ class ChatViewModel internal constructor(
             streamRecoveryJob = null
         }
         streamJob?.cancel()
+        flushPendingStreamingAssistant()
+        streamPacingJob?.cancel()
+        streamPacingJob = null
+        streamPacingOwnerId = streamId
+        pendingStreamingAssistantText = ""
         var assistantText = _state.value.streamingAssistantText()
         val replayBaseText = assistantText
         var replayMatchedPrefixLength = if (replayAfterSeq == 0) 0 else replayBaseText.length
@@ -2642,6 +2747,7 @@ class ChatViewModel internal constructor(
                             streamId = streamId,
                         )
                     ) {
+                        flushPendingStreamingAssistant()
                         handleStreamTransportError(streamId, "SSE connection closed unexpectedly.")
                     }
                 }
@@ -2658,10 +2764,11 @@ class ChatViewModel internal constructor(
                         clearStreamRecoveryState()
                         if (tokenText.isNotEmpty()) {
                             assistantText += tokenText
-                            upsertStreamingAssistant(assistantText)
+                            enqueueStreamingAssistantText(streamId, tokenText)
                         }
                     }
                     is SseEvent.InterimAssistant -> {
+                        flushPendingStreamingAssistant()
                         val interim = event.text.trim()
                         if (event.alreadyStreamed != true && interim.isNotBlank() && !assistantText.endsWith(interim)) {
                             assistantText = if (assistantText.isBlank()) interim else "$assistantText\n\n$interim"
@@ -2688,13 +2795,28 @@ class ChatViewModel internal constructor(
                             }
                         }
                     }
-                    is SseEvent.Done -> completeStream(event)
-                    SseEvent.StreamEnd -> finishStream(
-                        needsTranscriptRefresh = assistantText.isBlank() || reconcileFinalTranscriptForStreamId == streamId,
-                    )
-                    SseEvent.Cancelled -> finishTerminalStream(streamId)
-                    is SseEvent.Error -> finishTerminalStream(streamId, event.message)
-                    is SseEvent.TransportError -> handleStreamTransportError(streamId, event.message)
+                    is SseEvent.Done -> {
+                        flushPendingStreamingAssistant()
+                        completeStream(event)
+                    }
+                    SseEvent.StreamEnd -> {
+                        flushPendingStreamingAssistant()
+                        finishStream(
+                            needsTranscriptRefresh = assistantText.isBlank() || reconcileFinalTranscriptForStreamId == streamId,
+                        )
+                    }
+                    SseEvent.Cancelled -> {
+                        flushPendingStreamingAssistant()
+                        finishTerminalStream(streamId)
+                    }
+                    is SseEvent.Error -> {
+                        flushPendingStreamingAssistant()
+                        finishTerminalStream(streamId, event.message)
+                    }
+                    is SseEvent.TransportError -> {
+                        flushPendingStreamingAssistant()
+                        handleStreamTransportError(streamId, event.message)
+                    }
                     is SseEvent.PendingSteerLeftover -> {
                         clearStreamRecoveryState()
                         enqueuePendingSteerLeftover(event.text)
@@ -2841,6 +2963,50 @@ class ChatViewModel internal constructor(
         }
     }
 
+    private fun enqueueStreamingAssistantText(streamId: String, text: String) {
+        if (text.isEmpty()) return
+        if (streamPacingOwnerId != streamId) {
+            flushPendingStreamingAssistant()
+            streamPacingOwnerId = streamId
+        }
+        pendingStreamingAssistantText += text
+        if (streamPacingJob?.isActive == true) return
+
+        streamPacingJob = viewModelScope.launch {
+            delay(STREAMING_INITIAL_REVEAL_DELAY_MS)
+            while (streamPacingOwnerId == streamId && pendingStreamingAssistantText.isNotEmpty()) {
+                drainPendingStreamingAssistant()
+                if (pendingStreamingAssistantText.isNotEmpty()) delay(STREAMING_WORD_REVEAL_CADENCE_MS)
+            }
+            if (streamPacingOwnerId == streamId) streamPacingJob = null
+        }
+    }
+
+    private fun drainPendingStreamingAssistant(maximumWordUnits: Int? = null): Boolean {
+        val pending = pendingStreamingAssistantText
+        if (pending.isEmpty()) return false
+        val quota = maximumWordUnits ?: StreamingWordDrainPolicy.drainQuota(
+            backlogUnitCount = StreamingWordDrainPolicy.unitCount(pending),
+            cadenceMillis = STREAMING_WORD_REVEAL_CADENCE_MS,
+            maximumLagMillis = STREAMING_MAX_REVEAL_LAG_MS,
+        )
+        val (head, tail) = StreamingWordDrainPolicy.splitAtUnitBoundary(pending, quota)
+        if (head.isEmpty()) return false
+        pendingStreamingAssistantText = tail
+        upsertStreamingAssistant(_state.value.streamingAssistantText() + head)
+        return true
+    }
+
+    private fun flushPendingStreamingAssistant() {
+        streamPacingJob?.cancel()
+        streamPacingJob = null
+        if (pendingStreamingAssistantText.isNotEmpty()) {
+            drainPendingStreamingAssistant(maximumWordUnits = Int.MAX_VALUE)
+        }
+        pendingStreamingAssistantText = ""
+        streamPacingOwnerId = null
+    }
+
     private fun ChatUiState.streamingAssistantText(): String {
         messages.lastOrNull { it.role == "assistant" && it.id == "streaming" }?.let { return it.displayText }
         val latestUserIndex = messages.indexOfLast { it.role == "user" }
@@ -2941,6 +3107,7 @@ class ChatViewModel internal constructor(
     }
 
     private fun finishTerminalStream(streamId: String, error: String? = null) {
+        flushPendingStreamingAssistant()
         if (reconcileFinalTranscriptForStreamId == streamId) reconcileFinalTranscriptForStreamId = null
         repository.clearStreamCursor(streamId)
         streamRecoveryJob?.cancel()
@@ -2961,6 +3128,7 @@ class ChatViewModel internal constructor(
     }
 
     private suspend fun completeStream(event: SseEvent.Done) {
+        flushPendingStreamingAssistant()
         val completingStreamId = _state.value.activeStreamId
         val completedSession = event.session?.takeIf { completed ->
             completed.sessionId.isNullOrBlank() || completed.sessionId == sessionId
@@ -3007,6 +3175,7 @@ class ChatViewModel internal constructor(
     }
 
     private fun finishStream(needsTranscriptRefresh: Boolean = false) {
+        flushPendingStreamingAssistant()
         reconcileFinalTranscriptForStreamId = null
         _state.value.activeStreamId?.let(repository::clearStreamCursor)
         streamJob?.cancel()
@@ -3223,6 +3392,9 @@ class ChatViewModel internal constructor(
         const val MAXIMUM_STREAM_RECOVERY_ATTEMPTS = 6
         const val COMPLETED_TRANSCRIPT_REFRESH_DELAY_MS = 500L
         const val COMPLETED_TRANSCRIPT_REFRESH_ATTEMPTS = 6
+        const val STREAMING_INITIAL_REVEAL_DELAY_MS = 16L
+        const val STREAMING_WORD_REVEAL_CADENCE_MS = 48L
+        const val STREAMING_MAX_REVEAL_LAG_MS = 1_000L
         const val MAXIMUM_MESSAGE_ATTACHMENTS = 10
         const val MAXIMUM_BACKGROUND_POLL_MILLIS = 10L * 60L * 1_000L
         const val MAXIMUM_BACKGROUND_FAILURES = 6
