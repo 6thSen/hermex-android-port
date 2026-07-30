@@ -191,8 +191,22 @@ struct SessionListView: View {
                 AddServerView(authManager: authManager)
             }
             .task {
-                await refreshSessionsAndActiveProfile()
+                // Start the normal refresh immediately so a slow direct session
+                // request cannot leave the sidebar empty. Deep-link resolution still
+                // owns navigation precedence and is awaited before stored selection
+                // restoration.
+                await SessionListInitialLoad.run(
+                    resolvePendingDeepLink: {
+                        await openPendingDeepLinkedSessionIfNeeded()
+                    },
+                    refreshSessionsAndActiveProfile: {
+                        await refreshSessionsAndActiveProfile()
+                    }
+                )
+                guard !Task.isCancelled else { return }
                 didCompleteInitialLoad = true
+                // Ordered after the deep link so restoreIfNeeded() sees the explicit
+                // destination and leaves the stored selection alone.
                 restoreLastSelectedSessionIfNeeded()
             }
             .task(id: remoteSearchTaskID) {
@@ -203,7 +217,6 @@ struct SessionListView: View {
             }
             .onAppear {
                 openPendingSharedImportIfNeeded()
-                openPendingDeepLinkedSessionIfNeeded()
                 openRequestedNewChatIfNeeded()
                 refreshAfterReturningIfNeeded()
             }
@@ -211,7 +224,7 @@ struct SessionListView: View {
                 openPendingSharedImportIfNeeded()
             }
             .onChange(of: pendingDeepLinkedSessionID) {
-                openPendingDeepLinkedSessionIfNeeded()
+                Task { await openPendingDeepLinkedSessionIfNeeded() }
             }
             .onChange(of: requestedNewChat) {
                 openRequestedNewChatIfNeeded()
@@ -1109,25 +1122,38 @@ struct SessionListView: View {
         )
     }
 
-    private func openPendingDeepLinkedSessionIfNeeded() {
-        guard let sessionID = pendingDeepLinkedSessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionID.isEmpty
-        else {
-            return
-        }
+    /// Awaited (not fire-and-forget) so the cold-start `.task` can resolve it before
+    /// `restoreLastSelectedSessionIfNeeded()` — otherwise the restore races the deep
+    /// link's network load and wins with the previous session.
+    private func openPendingDeepLinkedSessionIfNeeded() async {
+        guard !Task.isCancelled else { return }
 
-        pendingDeepLinkedSessionID = nil
+        while let sessionID = navigationState.beginDeepLinkedSessionLoad(
+            id: pendingDeepLinkedSessionID
+        ) {
+            pendingDeepLinkedSessionID = nil
+            await openDeepLinkedSession(id: sessionID)
+            navigationState.finishDeepLinkedSessionLoad(id: sessionID)
+            guard !Task.isCancelled else { return }
+        }
+    }
+
+    private func openDeepLinkedSession(id sessionID: String) async {
         if let loadedSession = viewModel.sessions.first(where: { $0.sessionId == sessionID }) {
             selectSession(loadedSession)
             return
         }
 
-        Task {
-            if let session = await viewModel.loadSessionForDeepLink(id: sessionID, modelContext: modelContext) {
-                selectSession(session)
-            }
-            handleLastError()
+        let session = await viewModel.loadSessionForDeepLink(id: sessionID, modelContext: modelContext)
+        // Re-checked post-await: the view (and this task) may have been torn down —
+        // e.g. dismissed, or the active server changed under `.id(server)` — while
+        // the network load was in flight. Selecting or persisting for a session
+        // whose owning view no longer exists is stale work, not a real navigation.
+        guard !Task.isCancelled else { return }
+        if let session {
+            selectSession(session)
         }
+        handleLastError()
     }
 
     /// Opens the New Chat composer in response to the "New Chat" App Intents (#337/#338),
@@ -1167,7 +1193,8 @@ struct SessionListView: View {
     private func restoreLastSelectedSessionIfNeeded() {
         navigationState.restoreIfNeeded(
             from: viewModel.sessions,
-            clearsMissingSelection: viewModel.sessionLoadError == nil
+            clearsMissingSelection: viewModel.sessionLoadError == nil,
+            pendingDeepLinkedSessionID: pendingDeepLinkedSessionID
         )
         persistLastSelectedSession()
     }
@@ -1176,6 +1203,18 @@ struct SessionListView: View {
         SessionNavigationPersistence.save(navigationState.lastSelectedSessionID, for: server)
     }
 
+}
+
+enum SessionListInitialLoad {
+    @MainActor
+    static func run(
+        resolvePendingDeepLink: @escaping @MainActor () async -> Void,
+        refreshSessionsAndActiveProfile: @escaping @MainActor () async -> Void
+    ) async {
+        async let initialRefresh: Void = refreshSessionsAndActiveProfile()
+        await resolvePendingDeepLink()
+        await initialRefresh
+    }
 }
 
 struct HermesHeaderLogo: View {
