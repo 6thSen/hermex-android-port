@@ -98,19 +98,18 @@ jobs:
       - name: Create release notes
         run: |
           cat > release-notes.md <<'EOF'
-          Hermex 1.0.2 native Android release artifacts.
+          Hermex 1.0.3 native Android release artifacts.
 
           The APK and AAB are signed with the permanent Hermex release key. Keep using
           this signing identity for every future update.
 
-          Changes in 1.0.2:
-          - The chat top bar now uses a simple tint-free backdrop blur.
-          - Session swipe actions respond to shorter gestures and settle smoothly.
-          - Delete and archive actions use larger, centered vector icons.
-          - Light-mode session rows blend seamlessly with the app background.
-          - Long skill previews remain stable while their content scrolls.
+          Changes in 1.0.3:
+          - The chat top bar now blurs the transcript scrolling beneath it.
+          - The top-bar blur uses no tint, noise, border, or shadow.
+          - Initial chat content remains clear of the bar while scrolled content passes underneath.
+          - Skill previews remain stable and extend fully to the bottom edge without exposing the list.
 
-          Upgrade note: 1.0.2 installs directly over production-signed 1.0.x builds.
+          Upgrade note: 1.0.3 installs directly over production-signed 1.0.x builds.
           GitHub APKs from 0.2.7 and earlier used a debug signature and may still require
           uninstalling the old app once before installing this release.
 

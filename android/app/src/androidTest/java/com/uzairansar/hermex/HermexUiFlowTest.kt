@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.down
 import androidx.compose.ui.test.moveBy
 import androidx.compose.ui.test.swipeLeft
@@ -927,7 +928,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("Mock response").assertExists()
         val topBarBounds = composeRule.onNodeWithTag("chat_top_bar").fetchSemanticsNode().boundsInRoot
         val transcriptBounds = composeRule.onNodeWithTag("chat_transcript").fetchSemanticsNode().boundsInRoot
-        assertTrue(transcriptBounds.top >= topBarBounds.bottom - 1f)
+        assertTrue(transcriptBounds.top < topBarBounds.bottom)
         composeRule.onNodeWithTag("chat_transcript").performTouchInput { swipeDown() }
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithTag("user_message_bubble").fetchSemanticsNodes().isNotEmpty()
@@ -1517,6 +1518,14 @@ class HermexUiFlowTest {
             .onNodeWithTag("skill_detail_sheet", useUnmergedTree = true)
             .fetchSemanticsNode()
             .boundsInRoot
+        val windowBottom = composeRule
+            .onAllNodes(isRoot(), useUnmergedTree = true)
+            .fetchSemanticsNodes()
+            .maxOf { it.boundsInRoot.bottom }
+        assertTrue(
+            "Skill sheet bottom ${sheetBeforeScroll.bottom} did not reach window bottom $windowBottom",
+            abs(sheetBeforeScroll.bottom - windowBottom) <= 1f,
+        )
         composeRule
             .onNodeWithTag("skill_detail_scroll", useUnmergedTree = true)
             .performScrollToNode(hasSemanticsText("README.md"))

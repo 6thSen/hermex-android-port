@@ -186,6 +186,7 @@ fun Modifier.hermexGlass(
     surfaceLevel: HermexSurfaceLevel = if (castsShadow) HermexSurfaceLevel.Floating else HermexSurfaceLevel.Raised,
     tintEnabled: Boolean = true,
     drawsBorder: Boolean = true,
+    noiseFactor: Float = HermexGlassTokens.NoiseFactor,
 ): Modifier {
     val state = LocalHermexHazeState.current
     val tokens = LocalHermexSurfaceTokens.current
@@ -195,12 +196,12 @@ fun Modifier.hermexGlass(
             alpha = (tokens.glassTint.alpha * surfaceLevel.tintAlphaMultiplier).coerceAtMost(1f),
         )
     }
-    val hazeStyle = remember(tokens, surfaceLevel, tintEnabled, glassTint) {
+    val hazeStyle = remember(tokens, surfaceLevel, tintEnabled, glassTint, noiseFactor) {
         HazeStyle(
             backgroundColor = tokens.background,
             tint = if (tintEnabled) HazeTint(glassTint) else HazeTint(Color.Transparent),
             blurRadius = surfaceLevel.blurRadius,
-            noiseFactor = HermexGlassTokens.NoiseFactor,
+            noiseFactor = noiseFactor,
             fallbackTint = HazeTint(surfaceColor.copy(alpha = tokens.fallbackScrimAlpha)),
         )
     }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -1768,25 +1769,27 @@ private fun SkillDetailSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.9f
     ModalBottomSheet(
-        modifier = Modifier
-            .fillMaxHeight(0.9f)
-            .testTag("skill_detail_sheet"),
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetGesturesEnabled = false,
         dragHandle = null,
         containerColor = Color.Transparent,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .height(sheetHeight)
                 .hermexGlass(
                     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     castsShadow = false,
                     surfaceLevel = HermexSurfaceLevel.Floating,
                 )
+                .testTag("skill_detail_sheet")
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
             Row(

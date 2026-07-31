@@ -641,7 +641,6 @@ fun ChatRoute(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = topBarHeight)
                 .imePadding(),
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides chatLayoutDirection) {
@@ -689,7 +688,7 @@ fun ChatRoute(
                     contentPadding = PaddingValues(
                         start = 14.dp,
                         end = 14.dp,
-                        top = 8.dp,
+                        top = topBarHeight + 8.dp,
                         bottom = composerHeight + 40.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1372,6 +1371,7 @@ private fun ChatTopBar(
                 surfaceLevel = HermexSurfaceLevel.Base,
                 tintEnabled = false,
                 drawsBorder = false,
+                noiseFactor = 0f,
             )
             .padding(horizontal = 14.dp, vertical = 8.dp)
             .testTag("chat_top_bar"),
