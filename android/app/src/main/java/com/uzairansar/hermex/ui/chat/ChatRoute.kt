@@ -33,6 +33,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -429,6 +430,7 @@ fun ChatRoute(
     val topBarHeight = with(density) { topBarHeightPx.toDp() }.takeIf { it > 0.dp } ?: 82.dp
     val composerHeight = with(density) { composerHeightPx.toDp() }.takeIf { it > 0.dp } ?: 160.dp
     val transcriptListState = rememberLazyListState()
+    val isTranscriptDragged by transcriptListState.interactionSource.collectIsDraggedAsState()
     var followsTranscriptBottom by remember(sessionId) { mutableStateOf(true) }
     val isTranscriptAtBottom by remember(sessionId, transcriptListState) {
         derivedStateOf {
@@ -438,14 +440,20 @@ fun ChatRoute(
         }
     }
 
-    LaunchedEffect(transcriptListState) {
+    LaunchedEffect(transcriptListState, isTranscriptDragged) {
         snapshotFlow {
             val layout = transcriptListState.layoutInfo
             val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
-            transcriptListState.isScrollInProgress to
-                (layout.totalItemsCount == 0 || lastVisible >= layout.totalItemsCount - 2)
-        }.collect { (isScrolling, isNearBottom) ->
-            if (isScrolling) followsTranscriptBottom = isNearBottom
+            TranscriptScrollObservation(
+                isUserDragging = isTranscriptDragged,
+                lastScrolledBackward = transcriptListState.lastScrolledBackward,
+                isNearBottom = layout.totalItemsCount == 0 || lastVisible >= layout.totalItemsCount - 2,
+            )
+        }.collect { observation ->
+            followsTranscriptBottom = transcriptFollowState(
+                currentlyFollowing = followsTranscriptBottom,
+                observation = observation,
+            )
         }
     }
 
@@ -458,8 +466,13 @@ fun ChatRoute(
         state.isLoading,
         composerHeightPx,
     ) {
-        if (!followsTranscriptBottom) return@LaunchedEffect
+        if (!shouldAutoScrollTranscript(followsTranscriptBottom, transcriptListState.isScrollInProgress)) {
+            return@LaunchedEffect
+        }
         delay(32)
+        if (!shouldAutoScrollTranscript(followsTranscriptBottom, transcriptListState.isScrollInProgress)) {
+            return@LaunchedEffect
+        }
         val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
         if (lastItem >= 0) transcriptListState.animateScrollToItem(lastItem)
     }
@@ -876,7 +889,7 @@ fun ChatRoute(
                     },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = composerHeight + 12.dp)
+                        .padding(bottom = composerHeight + 20.dp)
                         .size(48.dp)
                         .testTag("chat_scroll_to_bottom"),
                 )
@@ -1356,8 +1369,8 @@ private fun ChatTopBar(
             .hermexGlass(
                 shape = RectangleShape,
                 castsShadow = false,
-                surfaceLevel = HermexSurfaceLevel.Floating,
-                tintEnabled = false,
+                surfaceLevel = HermexSurfaceLevel.Base,
+                tintEnabled = true,
                 drawsBorder = false,
             )
             .padding(horizontal = 14.dp, vertical = 8.dp)

@@ -98,15 +98,20 @@ jobs:
       - name: Create release notes
         run: |
           cat > release-notes.md <<'EOF'
-          Hermex 1.0 native Android release artifacts.
+          Hermex 1.0.1 native Android release artifacts.
 
           The APK and AAB are signed with the permanent Hermex release key. Keep using
           this signing identity for every future update.
 
-          Upgrade note: GitHub APKs from 0.2.7 and earlier used a debug signature.
-          Android may require uninstalling that build once before installing 1.0.0.
-          Hermes server data remains on the server, but local connections and settings
-          may need to be entered again.
+          Changes in 1.0.1:
+          - Chat streaming no longer pulls the transcript back to the bottom while the user scrolls upward.
+          - The chat top bar now uses a subtle iOS-style blurred material.
+          - The latest-message button has more clearance above the composer.
+          - The streaming stop glyph is larger and easier to recognize.
+
+          Upgrade note: 1.0.1 installs directly over the production-signed 1.0.0 build.
+          GitHub APKs from 0.2.7 and earlier used a debug signature and may still require
+          uninstalling the old app once before installing this release.
 
           This release was gated by:
           - iOS/Android endpoint parity

@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
@@ -905,6 +906,10 @@ class HermexUiFlowTest {
         val topBarBounds = composeRule.onNodeWithTag("chat_top_bar").fetchSemanticsNode().boundsInRoot
         val transcriptBounds = composeRule.onNodeWithTag("chat_transcript").fetchSemanticsNode().boundsInRoot
         assertTrue(transcriptBounds.top >= topBarBounds.bottom - 1f)
+        composeRule.onNodeWithTag("chat_transcript").performTouchInput { swipeDown() }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("user_message_bubble").fetchSemanticsNodes().isNotEmpty()
+        }
         val shortUserBubbleWidth = composeRule
             .onAllNodesWithTag("user_message_bubble")
             .fetchSemanticsNodes()
@@ -935,6 +940,102 @@ class HermexUiFlowTest {
         assertTrue(chatBackgroundBody.contains(""""session_id":"s1""""))
         assertTrue(chatBackgroundBody.contains(""""prompt":"parallel work""""))
         assertTrue(chatSkillsRequested)
+    }
+
+    @Test
+    fun chatRouteKeepsUserPositionWhenStreamUpdatesAfterUpwardDrag() {
+        val releaseStream = CountDownLatch(1)
+        val streamDelivered = AtomicBoolean(false)
+        val history = (1..20).joinToString(",") { index ->
+            """{"role":"assistant","content":"History message $index with enough detail to occupy a full transcript row."}"""
+        }
+        val sessionBody = {
+            val streamedMessages = if (streamDelivered.get()) {
+                ",{\"role\":\"user\",\"content\":\"Keep my place\"},{\"role\":\"assistant\",\"content\":\"Streamed update\"}"
+            } else {
+                ""
+            }
+            """
+            {
+              "session": {
+                "session_id": "s-scroll",
+                "title": "Scroll Test",
+                "workspace": "/workspace/hermex",
+                "model": "gpt-5",
+                "model_provider": "openai",
+                "messages": [
+                  $history
+                  $streamedMessages
+                ]
+              }
+            }
+            """.trimIndent()
+        }
+        val mockServer = MockWebServer().also { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.url.encodedPath) {
+                    "/api/session" -> json(sessionBody())
+                    "/api/models" -> json("""{"models":[{"id":"gpt-5","label":"GPT-5","provider":"openai"}]}""")
+                    "/api/profiles" -> json("""{"profiles":[]}""")
+                    "/api/workspaces" -> json("""{"last":"/workspace/hermex","workspaces":[{"path":"/workspace/hermex","name":"Hermex"}]}""")
+                    "/api/reasoning" -> json("""{"effort":"medium","supported_efforts":["medium"]}""")
+                    "/api/commands" -> json("""{"commands":[]}""")
+                    "/api/skills" -> json("""{"skills":[]}""")
+                    "/api/chat/start" -> json("""{"stream_id":"stream-scroll","session_id":"s-scroll"}""")
+                    "/api/chat/stream" -> {
+                        releaseStream.await(30, TimeUnit.SECONDS)
+                        streamDelivered.set(true)
+                        eventStream(
+                            """
+                            event: token
+                            data: {"text":"Streamed update"}
+
+                            event: done
+                            data: {"session_id":"s-scroll"}
+
+                            """.trimIndent(),
+                        )
+                    }
+                    "/api/approval/pending", "/api/clarify/pending" -> json("{}")
+                    else -> MockResponse.Builder().code(404).body("""{"error":"unexpected"}""").build()
+                }
+            }
+            server.start()
+            this.server = server
+        }
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val container = AppContainer(application)
+
+        composeRule.setContent {
+            HermexTheme {
+                ChatRoute(
+                    sessionId = "s-scroll",
+                    repository = container.chatRepository(mockServer.url("/")),
+                    onBack = {},
+                    onOpenWorkspace = {},
+                    onOpenGit = {},
+                )
+            }
+        }
+
+        try {
+            composeRule.waitUntil(timeoutMillis = 5_000) { hasText("History message 20", substring = true) }
+            composeRule.onNodeWithContentDescription("Message").performTextInput("Keep my place")
+            composeRule.onNodeWithContentDescription("Send").performClick()
+            composeRule.onNodeWithTag("chat_transcript").performTouchInput {
+                swipeDown()
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithTag("chat_scroll_to_bottom").fetchSemanticsNodes().isNotEmpty()
+            }
+            releaseStream.countDown()
+            composeRule.waitUntil(timeoutMillis = 5_000) { streamDelivered.get() }
+            Thread.sleep(250)
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("chat_scroll_to_bottom").assertIsDisplayed()
+        } finally {
+            releaseStream.countDown()
+        }
     }
 
     @Test
