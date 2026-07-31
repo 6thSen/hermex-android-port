@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.Text
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
@@ -22,8 +23,11 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.down
+import androidx.compose.ui.test.moveBy
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.up
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
@@ -65,6 +69,7 @@ import org.junit.rules.RuleChain
 import org.junit.rules.TestRule
 import org.junit.runner.RunWith
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -383,10 +388,27 @@ class HermexUiFlowTest {
         composeRule.onNodeWithContentDescription("Add project").assertIsDisplayed()
         assertTrue(composeRule.onAllNodesWithTag("session_swipe_action_delete").fetchSemanticsNodes().isEmpty())
         assertTrue(composeRule.onAllNodesWithTag("session_swipe_action_archive").fetchSemanticsNodes().isEmpty())
-        composeRule.onNodeWithTag("session_row_s1").performTouchInput { swipeLeft() }
+        composeRule.onNodeWithTag("session_row_s1").performTouchInput {
+            down(center)
+            moveBy(Offset(-width * 0.14f, 0f))
+            up()
+        }
         composeRule.onNodeWithTag("session_row_s1").assertIsDisplayed()
         assertTrue(composeRule.onAllNodesWithTag("session_swipe_action_delete").fetchSemanticsNodes().isNotEmpty())
         assertTrue(composeRule.onAllNodesWithTag("session_swipe_action_archive").fetchSemanticsNodes().isNotEmpty())
+        listOf("delete", "archive").forEach { action ->
+            val circle = composeRule
+                .onNodeWithTag("session_swipe_action_${action}_circle", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+            val icon = composeRule
+                .onNodeWithTag("session_swipe_action_${action}_icon", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+            assertTrue(icon.width >= circle.width * 0.6f)
+            assertTrue(abs(icon.center.x - circle.center.x) <= 1f)
+            assertTrue(abs(icon.center.y - circle.center.y) <= 1f)
+        }
         composeRule.onNodeWithText("Tasks").performClick()
         assertEquals("tasks", openedPanel)
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Active Profile") }
@@ -1421,6 +1443,9 @@ class HermexUiFlowTest {
 
     @Test
     fun panelsRouteGroupsAndSearchesSkillsLikeIos() {
+        val longSkillContent = (1..24).joinToString("\\n\\n") { section ->
+            "Section $section: detailed skill guidance for scrolling stability."
+        }
         val mockServer = MockWebServer().also { server ->
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -1445,7 +1470,7 @@ class HermexUiFlowTest {
                                     """
                                     {
                                       "name": "Review Code",
-                                      "content": "Use this skill to review a branch.",
+                                      "content": "$longSkillContent",
                                       "linked_files": ["README.md"]
                                     }
                                     """.trimIndent(),
@@ -1485,9 +1510,32 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("review").assertIsDisplayed()
 
         composeRule.onNodeWithText("Review Code").performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Linked Files") }
-        composeRule.onNodeWithText("Linked Files").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("skill_detail_scroll", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        val sheetBeforeScroll = composeRule
+            .onNodeWithTag("skill_detail_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        composeRule
+            .onNodeWithTag("skill_detail_scroll", useUnmergedTree = true)
+            .performScrollToNode(hasSemanticsText("README.md"))
+        assertTrue(composeRule.onAllNodesWithText("Linked Files").fetchSemanticsNodes().isNotEmpty())
         composeRule.onNodeWithText("README.md").assertIsDisplayed()
+        composeRule.waitForIdle()
+        val sheetAfterScroll = composeRule
+            .onNodeWithTag("skill_detail_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        Thread.sleep(250)
+        composeRule.waitForIdle()
+        val sheetAfterSettling = composeRule
+            .onNodeWithTag("skill_detail_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(abs(sheetAfterScroll.top - sheetBeforeScroll.top) <= 1f)
+        assertTrue(abs(sheetAfterSettling.top - sheetAfterScroll.top) <= 1f)
+        assertTrue(abs(sheetAfterSettling.bottom - sheetAfterScroll.bottom) <= 1f)
         composeRule.onNodeWithText("Done").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithText("Done").fetchSemanticsNodes().isEmpty()

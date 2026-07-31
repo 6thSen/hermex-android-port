@@ -8,6 +8,9 @@ import android.content.res.Configuration
 import android.graphics.Color as AndroidColor
 import androidx.annotation.DrawableRes
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -52,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -72,6 +76,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -103,6 +109,7 @@ import com.uzairansar.hermex.ui.theme.HermexIconButton
 import com.uzairansar.hermex.ui.theme.HermexPillButton
 import com.uzairansar.hermex.ui.theme.hermexGlass
 import com.uzairansar.hermex.ui.theme.hermexColorFromHex
+import com.uzairansar.hermex.ui.theme.hermexBackgroundColor
 import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContainerColor
 import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContentColor
 import com.uzairansar.hermex.ui.theme.primaryActionTintApplies
@@ -1301,7 +1308,7 @@ private fun SessionRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = rowMinimumHeight)
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 1f))
+                    .background(hermexBackgroundColor())
                     .testTag("session_row_${session.stableId}")
                     .combinedClickable(
                         onClick = onOpen,
@@ -1408,55 +1415,79 @@ private fun SessionSwipeContainer(
     content: @Composable () -> Unit,
 ) {
     val revealWidthPx = with(LocalDensity.current) { 168.dp.toPx() }
+    val viewConfiguration = LocalViewConfiguration.current
+    val swipeViewConfiguration = remember(viewConfiguration) {
+        object : ViewConfiguration by viewConfiguration {
+            override val touchSlop: Float = viewConfiguration.touchSlop * 0.55f
+        }
+    }
     var offsetPx by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(enabled) {
         if (!enabled) offsetPx = 0f
     }
 
-    Box(modifier = Modifier.fillMaxWidth()) {
-        if (offsetPx < -0.5f) {
-            Row(
-                modifier = Modifier.matchParentSize(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SwipeAction(
-                    label = localizedString("Delete"),
-                    symbol = "⌫",
-                    color = Color(0xFFFF3B30),
-                    onClick = {
-                        offsetPx = 0f
-                        onDelete()
-                    },
-                )
-                SwipeAction(
-                    label = if (archived) "Restore" else "Archive",
-                    symbol = "▣",
-                    color = Color(0xFFFF9500),
-                    onClick = {
-                        offsetPx = 0f
-                        onArchive()
-                    },
-                )
+    CompositionLocalProvider(LocalViewConfiguration provides swipeViewConfiguration) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            if (offsetPx < -0.5f) {
+                Row(
+                    modifier = Modifier.matchParentSize(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SwipeAction(
+                        label = localizedString("Delete"),
+                        iconRes = R.drawable.ic_hermex_trash,
+                        color = Color(0xFFFF3B30),
+                        onClick = {
+                            offsetPx = 0f
+                            onDelete()
+                        },
+                    )
+                    SwipeAction(
+                        label = if (archived) "Restore" else "Archive",
+                        iconRes = R.drawable.ic_hermex_archive_box,
+                        color = Color(0xFFFF9500),
+                        onClick = {
+                            offsetPx = 0f
+                            onArchive()
+                        },
+                    )
+                }
             }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { translationX = offsetPx }
-                .draggable(
-                    enabled = enabled,
-                    orientation = Orientation.Horizontal,
-                    state = rememberDraggableState { delta ->
-                        offsetPx = (offsetPx + delta).coerceIn(-revealWidthPx, 0f)
-                    },
-                    onDragStopped = {
-                        offsetPx = if (offsetPx <= -revealWidthPx * 0.35f) -revealWidthPx else 0f
-                    },
-                ),
-        ) {
-            content()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { translationX = offsetPx }
+                    .draggable(
+                        enabled = enabled,
+                        orientation = Orientation.Horizontal,
+                        state = rememberDraggableState { delta ->
+                            offsetPx = (offsetPx + delta).coerceIn(-revealWidthPx, 0f)
+                        },
+                        onDragStopped = { velocity ->
+                            val targetOffset = when {
+                                velocity < -250f -> -revealWidthPx
+                                velocity > 250f -> 0f
+                                offsetPx <= -revealWidthPx * 0.18f -> -revealWidthPx
+                                else -> 0f
+                            }
+                            animate(
+                                initialValue = offsetPx,
+                                targetValue = targetOffset,
+                                initialVelocity = velocity,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMedium,
+                                ),
+                            ) { value, _ ->
+                                offsetPx = value
+                            }
+                        },
+                    ),
+            ) {
+                content()
+            }
         }
     }
 }
@@ -1464,7 +1495,7 @@ private fun SessionSwipeContainer(
 @Composable
 private fun SwipeAction(
     label: String,
-    symbol: String,
+    @DrawableRes iconRes: Int,
     color: Color,
     onClick: () -> Unit,
 ) {
@@ -1478,10 +1509,21 @@ private fun SwipeAction(
         verticalArrangement = Arrangement.Center,
     ) {
         Box(
-            modifier = Modifier.size(52.dp).clip(CircleShape).background(color),
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(color)
+                .testTag("session_swipe_action_${label.lowercase()}_circle"),
             contentAlignment = Alignment.Center,
         ) {
-            Text(symbol, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag("session_swipe_action_${label.lowercase()}_icon"),
+                colorFilter = ColorFilter.tint(Color.White),
+            )
         }
         Text(localizedString(label), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
     }

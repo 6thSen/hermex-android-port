@@ -1370,7 +1370,7 @@ private fun ChatTopBar(
                 shape = RectangleShape,
                 castsShadow = false,
                 surfaceLevel = HermexSurfaceLevel.Base,
-                tintEnabled = true,
+                tintEnabled = false,
                 drawsBorder = false,
             )
             .padding(horizontal = 14.dp, vertical = 8.dp)

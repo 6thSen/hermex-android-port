@@ -33,6 +33,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -54,6 +55,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -1765,23 +1767,27 @@ private fun SkillDetailSheet(
     onOpenLinkedFile: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
+        modifier = Modifier
+            .fillMaxHeight(0.9f)
+            .testTag("skill_detail_sheet"),
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         containerColor = Color.Transparent,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.9f)
+                .fillMaxSize()
                 .hermexGlass(
                     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     castsShadow = false,
                     surfaceLevel = HermexSurfaceLevel.Floating,
                 )
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1798,18 +1804,27 @@ private fun SkillDetailSheet(
                 HermexPillButton(localizedString("Done"), onDismiss, filled = true)
             }
             Spacer(Modifier.height(14.dp))
-            val content = skill.content?.trim().orEmpty()
-            when {
-                content.isNotEmpty() -> MarkdownText(content)
-                !skill.error.isNullOrBlank() -> Text(skill.error, color = MaterialTheme.colorScheme.error)
-                else -> Text(localizedString("This skill has no content."), color = PanelSecondaryText)
-            }
-            if (skill.linkedFileNames.isNotEmpty()) {
-                Spacer(Modifier.height(18.dp))
-                PanelSectionLabel(localizedString("Linked Files"))
-                skill.linkedFileNames.forEach { fileName ->
-                    LinkedFileRow(fileName, !isLoadingFile) { onOpenLinkedFile(fileName) }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("skill_detail_scroll"),
+            ) {
+                val content = skill.content?.trim().orEmpty()
+                when {
+                    content.isNotEmpty() -> MarkdownText(content)
+                    !skill.error.isNullOrBlank() -> Text(skill.error, color = MaterialTheme.colorScheme.error)
+                    else -> Text(localizedString("This skill has no content."), color = PanelSecondaryText)
                 }
+                if (skill.linkedFileNames.isNotEmpty()) {
+                    Spacer(Modifier.height(18.dp))
+                    PanelSectionLabel(localizedString("Linked Files"))
+                    skill.linkedFileNames.forEach { fileName ->
+                        LinkedFileRow(fileName, !isLoadingFile) { onOpenLinkedFile(fileName) }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
             }
         }
     }
