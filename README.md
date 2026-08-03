@@ -2,115 +2,129 @@
 
 <img src="docs/assets/readme/hermex-icon.png" alt="Hermex app icon" width="96" />
 
-# Hermex
+# Hermex for Android
 
-**Control your self-hosted [Hermes](https://github.com/nesquena/hermes-webui) agent from your iPhone or Android device.**
+**A native Android client for controlling your self-hosted [Hermes](https://github.com/nesquena/hermes-webui) agent.**
 
 Your server. Your phone. No middleman.
 
-[![iOS 18+](https://img.shields.io/badge/iOS-18%2B-000000?logo=apple&logoColor=white)](https://apps.apple.com/app/hermex/id6767006319)
-[![Android](https://img.shields.io/badge/Android-native-3DDC84?logo=android&logoColor=white)](android/README.md)
-[![Swift](https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![Release 1.0.4](https://img.shields.io/badge/release-1.0.4-2F6B4F)](https://github.com/Hungbocluaqua/hermex-android-port/releases/tag/android-v1.0.4)
+[![Android 8+](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)](android/README.md)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Jetpack Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
-[![Follow on X](https://img.shields.io/badge/Follow-%40uzairansar-000000?logo=x&logoColor=white)](https://x.com/uzairansar)
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/callmeuzi)
 
-<a href="https://apps.apple.com/app/hermex/id6767006319">
-  <img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us" alt="Download on the App Store" height="50" />
-</a>
+[![Download APK](https://img.shields.io/badge/Download-signed%20APK-2F6B4F?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Hungbocluaqua/hermex-android-port/releases/download/android-v1.0.4/app-release.apk)
 
-[Website](https://hermexapp.com) · [App Store](https://apps.apple.com/app/hermex/id6767006319) · [Report a bug](https://github.com/uzairansaruzi/hermex/issues) · [Contributing](CONTRIBUTING.md)
-
-<img src="docs/assets/readme/hero-devices.png" alt="Hermex running on two iPhones: a streaming chat session and the home screen with Tasks, Skills, Memory, Insights, and Sessions" width="720" />
+[Latest release](https://github.com/Hungbocluaqua/hermex-android-port/releases/latest) · [Android source](android/) · [Report a bug](https://github.com/Hungbocluaqua/hermex-android-port/issues) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
-Hermex is a native mobile app for driving a self-hosted [hermes-webui](https://github.com/nesquena/hermes-webui) server — a mobile cockpit for an AI agent that lives on a machine **you** control. The iOS app is built with SwiftUI, and the Android app under [`android/`](android/README.md) is built with Kotlin and Jetpack Compose. The phone is the control plane, not the compute plane: the agent, its tools, and your data stay on your own hardware.
+Hermex is a native Kotlin and Jetpack Compose port of the original SwiftUI app. It turns an Android phone into a mobile cockpit for a [hermes-webui](https://github.com/nesquena/hermes-webui) server running on hardware you control. The phone handles interaction; your server continues to run the agent, tools, models, and workspaces.
 
-- **Free.** No subscriptions, no in-app purchases.
-- **Private.** No analytics, no tracking, no third-party relay — the app talks only to your server.
-- **Native.** SwiftUI on iOS and Kotlin with Jetpack Compose on Android; no WebView wrapper.
+- **Free and open source.** No subscriptions or in-app purchases.
+- **Private by design.** No analytics, tracking, hosted account, or third-party relay.
+- **Actually native.** Compose UI, Android notifications, share targets, shortcuts, widgets, encrypted local storage, and no WebView wrapper.
+- **Offline aware.** Recent sessions and messages remain available from the Room cache when the server cannot be reached.
 
-## Features
+The original iPhone app is still maintained in this repository, but this README focuses on the Android port and its releases.
 
-- **Chat with your agent** — send messages with model, reasoning-effort, workspace, and profile options; attach files and images; watch responses stream in real time with thinking and tool-call detail.
-- **Steer or stop a run** mid-flight.
-- **Sessions** — browse, search, and resume every conversation on your server; cached sessions stay readable offline.
-- **Pick your models** — switch between any model or provider your server is configured for, with recents and favorites.
-- **Profiles & projects** — switch agent profiles and organize sessions into projects.
-- **Tasks** — view and edit your agent's scheduled cron jobs from your phone.
-- **Skills** — browse and search the agent's installed skills.
-- **Workspace browser** — explore your server's file system from the app.
-- **Memory & Insights** — read-only panels for agent memory and usage analytics.
+## Install Hermex 1.0.4
 
-<div align="center">
-<table>
-  <tr>
-    <td align="center"><img src="docs/assets/readme/screenshot-chat.png" alt="Streaming chat with code blocks and markdown tables" width="240" /><br /><sub><b>Stream responses in real time</b></sub></td>
-    <td align="center"><img src="docs/assets/readme/screenshot-tasks.png" alt="Tasks screen listing scheduled cron jobs" width="240" /><br /><sub><b>Manage scheduled tasks</b></sub></td>
-    <td align="center"><img src="docs/assets/readme/screenshot-skills.png" alt="Skills screen with searchable agent skills" width="240" /><br /><sub><b>Browse agent skills</b></sub></td>
-  </tr>
-</table>
+Hermex is currently distributed as a signed APK through GitHub Releases and requires Android 8.0 (API 26) or newer.
 
-More screenshots at [hermexapp.com](https://hermexapp.com).
-</div>
+1. Download [`app-release.apk`](https://github.com/Hungbocluaqua/hermex-android-port/releases/download/android-v1.0.4/app-release.apk) on your Android device.
+2. If prompted, allow your browser or file manager to install apps from that source.
+3. Open the APK and install Hermex. Future signed releases can be installed over the existing app.
+4. Enter your `hermes-webui` server URL and password during onboarding.
 
-## Getting started
+The matching AAB is included on the [1.0.4 release page](https://github.com/Hungbocluaqua/hermex-android-port/releases/tag/android-v1.0.4) for store distribution; Android users should install the APK instead.
 
-Hermex is a client only — it does not ship with, host, or provision a backend. You bring your own [hermes-webui](https://github.com/nesquena/hermes-webui) server (a third-party, MIT-licensed open-source project) running on a machine you control. Setup takes about 15 minutes:
+APK SHA-256:
 
-1. **Run the server.** Install and start `hermes-webui` on macOS, Linux, or Windows/WSL2 (Python 3.11+). Set `HERMES_WEBUI_PASSWORD`.
-2. **Make it reachable from your phone** (see options below).
-3. **Connect.** [Download Hermex for iOS](https://apps.apple.com/app/hermex/id6767006319) or build the Android app from [`android/`](android/README.md), enter your server URL (e.g. `https://hermes.yourdomain.com`) and password, and you're in.
-
-Self-hosting the server, securing it, and keeping it reachable are your responsibility.
-
-### Making the server reachable
-
-- **HTTPS via a tunnel or reverse proxy (recommended).** Expose the server through Cloudflare Tunnel or any reverse proxy that terminates real TLS at a hostname you own. Real HTTPS keeps iOS App Transport Security happy with no exceptions. On a publicly reachable hostname the password is your only app-level defense — set a strong one.
-- **Tailscale.** Run the server bound to all interfaces with a password, install Tailscale on both the server and the iPhone, and connect to `http://<tailnet-ip>:8787`. The app allows plain HTTP only for Tailscale's `100.64.0.0/10` device range.
-- **Simulator-only local testing** can use `http://localhost:8787` when the server runs on the same Mac.
-
-### Troubleshooting the connection
-
-If connection testing fails, check these first:
-
-1. The machine hosting `hermes-webui` is awake.
-2. `hermes-webui` is running and serving `/health` (`curl https://<your-server>/health`).
-3. The tunnel, reverse proxy, or Tailscale route is connected.
-4. The server URL and password are correct.
-
-## Building from source
-
-Prefer the [App Store build](https://apps.apple.com/app/hermex/id6767006319) unless you're developing. To build the iOS app yourself you need Xcode 26 or newer (iOS 18 SDK) and an iPhone or simulator on iOS 18+.
-
-Clone the repo, open `HermesMobile.xcodeproj`, and run the `HermesMobile` scheme on an iPhone simulator (the Xcode target is `HermesMobile`; the app's display name is `Hermex`). Dependencies are resolved automatically via Swift Package Manager.
-
-From the command line:
-
-```zsh
-xcodebuild -project HermesMobile.xcodeproj -scheme HermesMobile -destination 'platform=iOS Simulator,name=iPhone 17' build
+```text
+367d0ccca4d8eb7f0f0791d5ffc14076565a53b81d0a2629682bd15a098492c9
 ```
 
-```zsh
-xcodebuild test -project HermesMobile.xcodeproj -scheme HermesMobile -destination 'platform=iOS Simulator,name=iPhone 17'
+## Android features
+
+### Chat and sessions
+
+- Stream responses over SSE with thinking, tool-call, approval, and clarification detail.
+- Send text, images, files, voice notes, model choices, profiles, reasoning effort, and workspace context.
+- Stop, steer, interrupt, retry, undo, compress context, and use supported slash commands during a run.
+- Browse, search, pin, archive, restore, rename, delete, move, and branch server sessions.
+- Organize sessions with projects and keep recent transcripts readable offline.
+
+### Agent controls
+
+- Browse workspace directories and preview text, images, and binary file metadata.
+- Inspect Git status and diffs; stage, unstage, commit, fetch, pull, push, and switch branches with confirmations around destructive actions.
+- Create, edit, run, pause, inspect, and delete scheduled tasks.
+- Browse and toggle skills, edit memory sections, and review usage insights.
+- Switch models, providers, profiles, reasoning levels, and the server's default model.
+
+### Android integration
+
+- Receive active-stream status notifications, including Android 13+ notification permission handling.
+- Share text and files into a new Hermex session from other Android apps.
+- Record voice notes, transcribe them through the server, and send the result with its audio attachment.
+- Launch sessions, new chats, and voice sessions from static or dynamic app shortcuts.
+- Add the Hermex home-screen widget for quick access to sessions and new chats.
+- Play assistant responses using server TTS with Android TextToSpeech as a fallback.
+- Store server profiles, cookies, headers, and credentials using Android encrypted storage and Keystore-backed protection.
+- Use system, light, or dark appearance and any of the app's 18 bundled locales.
+
+## Connect to your server
+
+Hermex is a client only. It does not include, host, or provision a backend. You need a working [hermes-webui](https://github.com/nesquena/hermes-webui) server on macOS, Linux, or Windows/WSL2 with `HERMES_WEBUI_PASSWORD` set.
+
+1. Start `hermes-webui` and confirm that `http://localhost:8787/health` works on the server machine.
+2. Make the server reachable from your Android device with HTTPS, Tailscale, or a trusted private network.
+3. Enter the reachable server URL and password in Hermex.
+
+Self-hosting, securing, updating, and keeping the server online remain your responsibility.
+
+### HTTPS tunnel or reverse proxy
+
+This is the recommended option when you need access away from home. Expose `hermes-webui` through Cloudflare Tunnel or another reverse proxy that terminates real TLS at a hostname you control, then connect Hermex to a URL such as:
+
+```text
+https://hermes.yourdomain.com
 ```
 
-If that simulator is not installed, list available devices and choose a nearby iPhone simulator:
+Because the hostname is publicly reachable, use a strong `HERMES_WEBUI_PASSWORD`. Consider an additional access policy if your proxy supports one.
 
-```zsh
-xcrun simctl list devices available
-```
+### Tailscale
 
-Local validation defaults for XcodeBuildMCP users live in `.xcodebuildmcp/config.yaml`; the standard post-change flow is in [`DEVELOPMENT.md`](DEVELOPMENT.md).
+Tailscale keeps the server off the public internet and works directly with the Android port.
 
-### Android
+1. Install Tailscale on the server and Android device and sign both into the same tailnet.
+2. Start the server on all interfaces with authentication:
 
-The Android app lives in [`android/`](android/README.md). It uses Kotlin, Jetpack Compose, Material 3, Room, DataStore, OkHttp, SSE, Android encrypted storage, share intents, voice transcription, status notifications, shortcuts, widgets, and Fastlane-compatible release metadata.
+   ```bash
+   HERMES_WEBUI_HOST=0.0.0.0 HERMES_WEBUI_PASSWORD=your-secret ./start.sh
+   ```
 
-Maintainers can validate Android changes with the `Android CI` workflow and publish a named GitHub release with the manual `Android Named Release` workflow.
+3. Find the server address with `tailscale ip -4`.
+4. Connect Hermex to `http://<tailnet-ip>:8787`.
 
-Common Android validation commands:
+Hermex permits plain HTTP for local, private-network, and Tailscale destinations, but rejects insecure HTTP connections to public internet hosts.
+
+### Connection troubleshooting
+
+If onboarding cannot reach the server, verify that:
+
+1. The server machine is awake and `hermes-webui` is running.
+2. `/health` responds from another device on the same route.
+3. The tunnel, reverse proxy, local network, or Tailscale connection is active.
+4. The URL includes the correct scheme and port, and the password matches `HERMES_WEBUI_PASSWORD`.
+
+## Build the Android app
+
+The Android project lives in [`android/`](android/README.md). It targets API 36, supports API 26+, uses Java 17, Kotlin, Jetpack Compose, Material 3, Room, DataStore, OkHttp, and SSE.
+
+Install JDK 17 and Android SDK Platform 36, then run from PowerShell:
 
 ```powershell
 cd android
@@ -118,48 +132,59 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"
 $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
 ./gradlew.bat testDebugUnitTest
 ./gradlew.bat assembleDebug
-./gradlew.bat assembleDebugAndroidTest
+```
+
+For broader validation:
+
+```powershell
+./gradlew.bat connectedDebugAndroidTest
+./gradlew.bat lintDebug
+./gradlew.bat lintRelease
+./gradlew.bat assembleRelease
 ./gradlew.bat bundleRelease
 ```
 
-The debug APK is produced at `android/app/build/outputs/apk/debug/app-debug.apk`; the release bundle is produced at `android/app/build/outputs/bundle/release/app-release.aab`.
+Build outputs:
+
+- Debug APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+- Unsigned local release APK: `android/app/build/outputs/apk/release/app-release-unsigned.apk`
+- Release bundle: `android/app/build/outputs/bundle/release/app-release.aab`
+
+Local release builds are unsigned unless the signing environment variables described in [`android/RELEASE.md`](android/RELEASE.md) are configured. A signed build uses `app-release.apk`. Maintainers use the `Android CI` workflow for validation and `Android Named Release` to publish production-signed APK and AAB artifacts. See [`android/PLAY_RELEASE_CHECKLIST.md`](android/PLAY_RELEASE_CHECKLIST.md) for the release gate.
+
+## iOS version
+
+Hermex began as a native SwiftUI iPhone app and remains available on the [App Store](https://apps.apple.com/app/hermex/id6767006319). Its source is under [`HermesMobile/`](HermesMobile/), with Xcode target and scheme `HermesMobile`.
+
+The Android port uses the same server contract and product model, but it is an independent native implementation rather than a cross-platform wrapper. iOS development and TestFlight instructions remain in [`DEVELOPMENT.md`](DEVELOPMENT.md) and [`TESTFLIGHT.md`](TESTFLIGHT.md).
 
 ## Server compatibility
 
-The app is developed and tested against the `hermes-webui` commit pinned in [`UPSTREAM_TESTED_SHA`](UPSTREAM_TESTED_SHA). Upstream does not yet guarantee API stability (its README declares version skew unsupported pending their stable-API work), so newer or older server versions may break individual features — please include your server version in bug reports. The app decodes tolerantly (unknown fields never crash it) and endpoint shapes are verified against upstream source, never invented; see [`CONTRACT_TESTS.md`](CONTRACT_TESTS.md) for the contract-testing approach.
+Hermex is developed and tested against the `hermes-webui` commit pinned in [`UPSTREAM_TESTED_SHA`](UPSTREAM_TESTED_SHA). Upstream does not yet guarantee API stability, so newer or older server versions can break individual features. Include your server version when reporting a bug.
 
-## Documentation map
+The Android client uses tolerant JSON decoding and verifies endpoint shapes against upstream source instead of inventing API contracts. See [`CONTRACT_TESTS.md`](CONTRACT_TESTS.md) for the compatibility and pin-advance process.
 
-- [`PROJECT_SPEC.md`](PROJECT_SPEC.md): source of truth for product scope, API behavior, dependencies, and architecture decisions.
-- [`PROJECT_INTENT.md`](PROJECT_INTENT.md): short orientation; useful for product tradeoffs, not implementation details.
-- [`DEVELOPMENT.md`](DEVELOPMENT.md): local development workflow, server setup notes, and the maintainer release runbook.
-- [`TESTFLIGHT.md`](TESTFLIGHT.md): maintainer-only TestFlight/App Store Connect operations.
-- [`CONTRACT_TESTS.md`](CONTRACT_TESTS.md): upstream contract-test readiness and the pin-advance policy.
-- [`SECURITY.md`](SECURITY.md): how to report a vulnerability.
-- [`docs/agents/`](docs/agents): repo-local agent workflow conventions (issues, triage labels, domain notes).
-- [GitHub Issues](https://github.com/uzairansaruzi/hermex/issues): source of truth for active bugs, polish notes, and feature requests.
+## Project map
+
+- [`android/`](android/README.md): native Android source, tests, Gradle configuration, Fastlane metadata, and release docs.
+- [`.github/workflows/android-ci.yml`](.github/workflows/android-ci.yml): Android build, test, and lint validation.
+- [`.github/workflows/android-named-release.yml`](.github/workflows/android-named-release.yml): signed APK/AAB GitHub release workflow.
+- [`PROJECT_SPEC.md`](PROJECT_SPEC.md): original product and API source of truth.
+- [`DEVELOPMENT.md`](DEVELOPMENT.md): local development and maintainer workflows.
+- [`CONTRACT_TESTS.md`](CONTRACT_TESTS.md): upstream contract-test readiness and pin policy.
+- [`SECURITY.md`](SECURITY.md): vulnerability reporting.
 
 ## Contributing
 
-Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to pick up work and open a PR, [`AGENTS.md`](AGENTS.md) for the working agreement coding agents follow in this repo, and the [Code of Conduct](CODE_OF_CONDUCT.md). The short version:
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md), the repository working agreement in [`AGENTS.md`](AGENTS.md), and the [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
 
-- Do not invent API endpoints or JSON shapes; verify against the upstream server source or a running server.
-- Every `Codable` model decodes tolerantly — never crash on unknown fields.
-- Add no third-party dependencies beyond the locked list in `PROJECT_SPEC.md` without explicit approval.
-- Do not modify the upstream `hermes-webui` server from this repo.
-
-## Support the project
-
-Hermex is free and built in the open. If it's useful to you:
-
-- ⭐ **Star this repo** — it helps others find the project.
-- 🐦 **Follow [@uzairansar on X](https://x.com/uzairansar)** for updates and dev logs.
-- ☕ **[Buy me a coffee](https://buymeacoffee.com/callmeuzi)** to support development.
-
-<a href="https://buymeacoffee.com/callmeuzi"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-callmeuzi-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee" height="40" /></a>
+- Never invent API endpoints or JSON shapes; verify them against a running server, the official API docs, or pinned upstream source.
+- Decode upstream responses tolerantly and ignore unknown fields safely.
+- Do not add third-party dependencies without approval.
+- Do not modify the upstream `hermes-webui` server from this repository.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
-Hermex is an independent client and is not affiliated with the upstream [hermes-webui](https://github.com/nesquena/hermes-webui) project. Apple, the Apple logo, and App Store are trademarks of Apple Inc.
+Hermex is an independent client and is not affiliated with the upstream [hermes-webui](https://github.com/nesquena/hermes-webui) project. Android, Jetpack, and Google Play are trademarks of Google LLC. Apple and App Store are trademarks of Apple Inc.

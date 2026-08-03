@@ -1,0 +1,50 @@
+screen=chat-keyboard-open
+state=dark
+device=compact-phone
+package=com.uzairansar.hermex
+
+== focused window snapshot ==
+    isSleeping=false
+    topResumedActivity=ActivityRecord{1b94277 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity t15}
+      state=RESUMED delayedResume=false finishing=false
+      mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+      isSleeping=false
+        state=STOPPED delayedResume=false finishing=false
+        mVisibleRequested=false mVisible=false mClientVisible=false reportedDrawn=false reportedVisible=false
+      isSleeping=false
+      isSleeping=false
+  ResumedActivity: ActivityRecord{1b94277 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity t15}
+  mCurrentFocus=Window{10012f3 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity}
+  mFocusedApp=ActivityRecord{1b94277 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity t15}
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mFocusedWindow=Window{10012f3 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity}
+    mKeyguardShowing=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    Display{#0 state=ON size=393x852 ROTATION_0}:
+  mCurrentFocus=Window{10012f3 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity}
+  mFocusedApp=ActivityRecord{1b94277 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity t15}
+    mShowingDream=false mDreamingLockscreen=false
+    isKeyguardShowing=false
+    mFocusedWindow=Window{10012f3 u0 com.uzairansar.hermex/hermex.skip.app.MainActivity}
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    mHasSurface=false isReadyForDisplay()=false mWindowRemovalAllowed=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    mHasSurface=false isReadyForDisplay()=false mWindowRemovalAllowed=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    mHasSurface=false isReadyForDisplay()=false mWindowRemovalAllowed=false
+    mHasSurface=true isReadyForDisplay()=false mWindowRemovalAllowed=false
+
+== pid ==
+4757
+
+== display ==
+Physical size: 1080x2400
+Override size: 393x852
+Physical density: 420
+Override density: 160
+
+== resolved launch activity ==
+com.uzairansar.hermex/hermex.skip.app.MainActivity

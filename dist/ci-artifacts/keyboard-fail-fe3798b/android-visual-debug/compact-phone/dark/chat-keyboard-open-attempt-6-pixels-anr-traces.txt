@@ -1,0 +1,44 @@
+acct
+adb_keys
+apex
+bin
+bootstrap-apex
+bugreports
+cache
+config
+d
+data
+data_mirror
+debug_ramdisk
+dev
+etc
+init
+init.environ.rc
+linkerconfig
+lost+found
+metadata
+mnt
+odm
+odm_dlkm
+oem
+postinstall
+proc
+product
+sdcard
+second_stage_resources
+storage
+sys
+system
+system_dlkm
+system_ext
+tmp
+vendor
+vendor_dlkm
+===== /data/anr/anr_2026-07-09-08-13-55-489 =====
+===== /data/anr/anr_2026-07-09-08-14-05-147 =====
+===== /data/anr/anr_2026-07-09-08-14-37-730 =====
+===== /data/anr/anr_2026-07-09-08-15-16-725 =====
+===== /data/anr/anr_2026-07-09-08-15-28-053 =====
+===== /data/anr/anr_2026-07-09-08-16-58-451 =====
+===== /data/anr/anr_2026-07-09-08-17-42-170 =====
+===== /data/anr/temp_anr_3125387286861780108.txt =====
