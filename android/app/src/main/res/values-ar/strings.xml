@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">بدء جلسة جديدة</string>
     <string name="shortcut_new_voice_short">الإدخال الصوتي</string>
     <string name="shortcut_new_voice_long">الإدخال الصوتي</string>
-    <string name="shortcut_panels_short">المهام</string>
-    <string name="shortcut_panels_long">الذاكرة</string>
-    <string name="shortcut_settings_short">الإعدادات</string>
-    <string name="shortcut_settings_long">الإعدادات</string>
     <string name="widget_description">محادثة جديدة</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">الجلسات</string>

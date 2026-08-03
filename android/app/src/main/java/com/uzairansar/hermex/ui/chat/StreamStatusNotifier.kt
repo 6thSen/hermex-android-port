@@ -11,12 +11,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.uzairansar.hermex.AppVisibilityTracker
 import com.uzairansar.hermex.MainActivity
 import com.uzairansar.hermex.R
+import com.uzairansar.hermex.ui.localization.localizedString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +28,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 class StreamStatusNotifier(private val context: Context) {
@@ -57,7 +61,13 @@ class StreamStatusNotifier(private val context: Context) {
                                 }
                                 recoveryStreamId = streamId
                                 LiveStreamOwnerRegistry.acquire(serverId, sessionId, streamId, owner)
-                                StreamRecoveryService.start(context, serverId, sessionId, streamId)
+                                if (!StreamRecoveryService.start(context, serverId, sessionId, streamId)) {
+                                    Toast.makeText(
+                                        context,
+                                        context.localizedString("Background stream recovery could not start."),
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
                             }
                         }
                         show(
@@ -140,17 +150,23 @@ class StreamStatusNotifier(private val context: Context) {
         val normalizedRecoveryLabel = recoveryLabel?.takeIf { it.isNotBlank() }
         val title = if (normalizedRecoveryLabel != null) {
             if (normalizedRecoveryLabel.startsWith("Checking", ignoreCase = true)) {
-                "Hermex is checking stream"
+                context.localizedString("Checking stream")
             } else {
-                "Hermex is reconnecting"
+                context.localizedString("Hermes is reconnecting the response stream")
             }
         } else {
-            "Hermex is responding"
+            context.localizedString("Responding")
         }
-        val content = normalizedRecoveryLabel
+        val content = normalizedRecoveryLabel?.let { label ->
+            if (label.startsWith("Checking", ignoreCase = true)) {
+                context.localizedString("Checking stream")
+            } else {
+                context.localizedString("Reconnecting stream")
+            }
+        }
             ?: toolActivity
             ?: preview?.takeIf { it.isNotBlank() }?.take(120)
-            ?: "Response streaming"
+            ?: context.localizedString("Streaming")
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_hermex_launcher_monochrome)
             .setContentTitle(title)
@@ -174,8 +190,8 @@ class StreamStatusNotifier(private val context: Context) {
         if (!canPostNotifications(COMPLETION_CHANNEL_ID)) return
         val notification = NotificationCompat.Builder(context, COMPLETION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_hermex_launcher_monochrome)
-            .setContentTitle("Hermes response complete")
-            .setContentText("The assistant finished responding.")
+            .setContentTitle(context.localizedString("Hermes response complete"))
+            .setContentText(context.localizedString("The assistant finished responding."))
             .setAutoCancel(true)
             .setContentIntent(contentIntent(serverId, sessionId, complete = true))
             .build()
@@ -185,10 +201,10 @@ class StreamStatusNotifier(private val context: Context) {
     }
 
     internal fun notificationId(serverId: String, sessionId: String): Int =
-        "stream:$serverId:$sessionId".hashCode()
+        notificationIdentifier("stream", serverId, sessionId)
 
     private fun completionNotificationId(serverId: String, sessionId: String): Int =
-        "complete:$serverId:$sessionId".hashCode()
+        notificationIdentifier("complete", serverId, sessionId)
 
     private fun contentIntent(serverId: String, sessionId: String, complete: Boolean): PendingIntent {
         val uri = Uri.Builder()
@@ -205,7 +221,7 @@ class StreamStatusNotifier(private val context: Context) {
         val requestKey = if (complete) "complete" else "stream"
         return PendingIntent.getActivity(
             context,
-            "$requestKey:$serverId:$sessionId".hashCode(),
+            notificationIdentifier(requestKey, serverId, sessionId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -215,8 +231,8 @@ class StreamStatusNotifier(private val context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Chat status", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Status while Hermex responses are streaming"
+            NotificationChannel(CHANNEL_ID, context.localizedString("Streaming"), NotificationManager.IMPORTANCE_LOW).apply {
+                description = context.localizedString("Responding")
                 setShowBadge(false)
             },
         )
@@ -226,8 +242,8 @@ class StreamStatusNotifier(private val context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(COMPLETION_CHANNEL_ID) != null) return
         manager.createNotificationChannel(
-            NotificationChannel(COMPLETION_CHANNEL_ID, "Response complete", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Alerts when a Hermex response finishes"
+            NotificationChannel(COMPLETION_CHANNEL_ID, context.localizedString("Response complete"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = context.localizedString("The assistant finished responding.")
                 setShowBadge(true)
             },
         )
@@ -253,6 +269,12 @@ class StreamStatusNotifier(private val context: Context) {
     }
 
     private data class MonitorRegistration(val owner: Any, val job: Job)
+}
+
+internal fun notificationIdentifier(namespace: String, serverId: String, sessionId: String): Int {
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest("$namespace\u0000$serverId\u0000$sessionId".toByteArray(Charsets.UTF_8))
+    return ByteBuffer.wrap(digest, 0, Int.SIZE_BYTES).int
 }
 
 internal object LiveStreamOwnerRegistry {

@@ -61,7 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,6 +81,8 @@ import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,7 +90,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.uzairansar.hermex.AppContainer
 import com.uzairansar.hermex.R
@@ -100,7 +104,6 @@ import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.data.repository.AuthState
 import com.uzairansar.hermex.ui.ShortcutDestination
 import com.uzairansar.hermex.ui.ProfileShortcutPublisher
-import com.uzairansar.hermex.ui.createExportDirectory
 import com.uzairansar.hermex.ui.theme.HermesHeaderLogo
 import com.uzairansar.hermex.ui.theme.HermexCardShape
 import com.uzairansar.hermex.ui.theme.HermexColors
@@ -113,11 +116,9 @@ import com.uzairansar.hermex.ui.theme.hermexBackgroundColor
 import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContainerColor
 import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContentColor
 import com.uzairansar.hermex.ui.theme.primaryActionTintApplies
-import java.io.File
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToLong
 import com.uzairansar.hermex.ui.localization.localizedString
@@ -157,6 +158,17 @@ fun SessionListRoute(
                     serverId = loggedIn.server.toString(),
                 ) as T
             }
+
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                @Suppress("UNCHECKED_CAST")
+                return SessionListViewModel(
+                    repository = container.sessionRepository(loggedIn.server),
+                    panelsRepository = container.panelsRepository(loggedIn.server),
+                    localSettingsRepository = container.localSettingsRepository,
+                    serverId = loggedIn.server.toString(),
+                    savedStateHandle = extras.createSavedStateHandle(),
+                ) as T
+            }
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -170,8 +182,11 @@ fun SessionListRoute(
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var isCreatingProject by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val latestContext by rememberUpdatedState(context)
+    val latestOnOpenChat by rememberUpdatedState(onOpenChat)
+    val latestOnOpenVoiceChat by rememberUpdatedState(onOpenVoiceChat)
+    val latestOnOpenSharedDraft by rememberUpdatedState(onOpenSharedDraft)
     val profileShortcutPublisher = remember(context) { ProfileShortcutPublisher(context) }
-    val shareScope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val usesCompactFloatingAction = configuration.fontScale >= 1.3f ||
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -193,6 +208,23 @@ fun SessionListRoute(
     LaunchedEffect(viewModel) {
         viewModel.refreshAll()
     }
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is SessionListEvent.OpenSession -> when (event.destination) {
+                    SessionOpenDestination.Chat -> latestOnOpenChat(event.sessionId)
+                    SessionOpenDestination.VoiceChat -> latestOnOpenVoiceChat(event.sessionId)
+                    SessionOpenDestination.SharedDraft -> latestOnOpenSharedDraft(event.sessionId)
+                }
+                is SessionListEvent.ExportReady -> {
+                    shareSessionExport(latestContext, event.file)
+                        .onFailure { error ->
+                            viewModel.reportActionError(error.message ?: "Could not share session export.")
+                        }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(initialArchived) {
         if (initialArchived && !state.showArchived) {
@@ -213,7 +245,7 @@ fun SessionListRoute(
         if (!shortcutConsumed && shortcutAction == ShortcutDestination.ShareAction) {
             shortcutConsumed = true
             if (container.sharedDraftStore.hasPendingDraft()) {
-                viewModel.createSession(onCreated = onOpenSharedDraft)
+                viewModel.createSession(destination = SessionOpenDestination.SharedDraft)
             }
         } else if (!shortcutConsumed && shortcutAction != null && pendingShortcutAction == null) {
             pendingShortcutAction = shortcutAction
@@ -341,17 +373,10 @@ fun SessionListRoute(
                             onRename = { viewModel.requestRename(session) },
                             onDelete = { viewModel.requestDelete(session) },
                             onBranch = { viewModel.requestBranch(session) },
-                            onDuplicate = { viewModel.duplicate(session, onOpenChat) },
+                            onDuplicate = { viewModel.duplicate(session) },
                             onMove = { projectId -> viewModel.move(session, projectId) },
                             onExport = { format ->
-                                viewModel.exportSession(session, format) { file ->
-                                    shareScope.launch {
-                                        shareSessionExport(context, file)
-                                            .onFailure { error ->
-                                                viewModel.reportActionError(error.message ?: "Could not share session export.")
-                                            }
-                                    }
-                                }
+                                viewModel.exportSession(session, format)
                             },
                         )
                     }
@@ -361,7 +386,7 @@ fun SessionListRoute(
 
         if (!searchExpanded) {
             NewChatFloatingButton(
-                onClick = { viewModel.createSession(onCreated = onOpenChat) },
+                onClick = { viewModel.createSession() },
                 enabled = !state.isMutating,
                 tintColor = primaryActionTintColor,
                 compact = usesCompactFloatingAction,
@@ -382,15 +407,9 @@ fun SessionListRoute(
                 pendingShortcutAction = null
                 shortcutConsumed = true
             },
-            title = { Text(if (isVoice) "Start a voice chat?" else "Start a new chat?") },
+            title = { Text(localizedString(if (isVoice) "Voice input" else "New Chat")) },
             text = {
-                Text(
-                    if (isVoice) {
-                        "Hermex will create a new session and open the microphone after you continue."
-                    } else {
-                        "Hermex will create a new server session after you continue."
-                    },
-                )
+                Text(localizedString(if (isVoice) "Voice input" else "New Chat"))
             },
             confirmButton = {
                 TextButton(
@@ -398,9 +417,9 @@ fun SessionListRoute(
                         pendingShortcutAction = null
                         shortcutConsumed = true
                         when {
-                            isVoice -> viewModel.createSession(onCreated = onOpenVoiceChat)
-                            isProfile -> viewModel.createSession(profile = shortcutProfile, onCreated = onOpenChat)
-                            else -> viewModel.createSession(onCreated = onOpenChat)
+                            isVoice -> viewModel.createSession(destination = SessionOpenDestination.VoiceChat)
+                            isProfile -> viewModel.createSession(profile = shortcutProfile)
+                            else -> viewModel.createSession()
                         }
                     },
                 ) { Text(localizedString("Continue")) }
@@ -755,6 +774,7 @@ private fun ProfileOptionRow(
                 },
             )
             .clickable(enabled = enabled && !selected, onClick = onClick)
+            .semantics { this.selected = selected }
             .heightIn(min = 56.dp)
             .padding(start = 18.dp, end = 10.dp, top = 7.dp, bottom = 7.dp)
             .testTag("profile_option_${profile.name.orEmpty()}"),
@@ -787,7 +807,7 @@ private fun ProfileOptionRow(
             }
         }
         if (selected) {
-            SelectedSubrowIndicator(contentDescription = "Selected profile ${profile.displayTitle}")
+            SelectedSubrowIndicator()
         }
     }
 }
@@ -1073,6 +1093,7 @@ private fun ProjectFilterSubrow(
                     .weight(1f)
                     .heightIn(min = 52.dp)
                     .clickable(enabled = project.projectId != null, onClick = onSelect)
+                    .semantics { this.selected = selected }
                     .padding(start = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1095,11 +1116,11 @@ private fun ProjectFilterSubrow(
                     )
                 }
                 if (selected) {
-                    SelectedSubrowIndicator(contentDescription = "Selected project ${project.displayName}")
+                    SelectedSubrowIndicator()
                 }
             }
             HermexIconButton(
-                label = "Project actions for ${project.displayName}",
+                label = localizedStringFormat("Project actions for %@", project.displayName),
                 symbol = "...",
                 onClick = onToggleActions,
                 enabled = actionsEnabled,
@@ -1383,8 +1404,8 @@ private fun SessionRow(
                 if (session.archived == true) MiniBadge("Archived")
                 if (session.isActiveStreaming) MiniBadge("Streaming", tint = MaterialTheme.colorScheme.primary)
                 HermexPillButton(localizedString("Copy Full Title"), onCopyTitle, enabled = true)
-                HermexPillButton(if (session.pinned == true) "Unpin" else "Pin", onPin, enabled = !isMutating)
-                HermexPillButton(if (session.archived == true) "Restore" else "Archive", onArchive, enabled = !isMutating)
+                HermexPillButton(localizedString(if (session.pinned == true) "Unpin" else "Pin"), onPin, enabled = !isMutating)
+                HermexPillButton(localizedString(if (session.archived == true) "Restore" else "Archive"), onArchive, enabled = !isMutating)
                 HermexPillButton(localizedString("Rename"), onRename, enabled = !isMutating)
                 HermexPillButton(localizedString("Branch"), onBranch, enabled = !isMutating)
                 HermexPillButton(localizedString("Duplicate"), onDuplicate, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
@@ -1445,7 +1466,7 @@ private fun SessionSwipeContainer(
                         },
                     )
                     SwipeAction(
-                        label = if (archived) "Restore" else "Archive",
+                        label = localizedString(if (archived) "Restore" else "Archive"),
                         iconRes = R.drawable.ic_hermex_archive_box,
                         color = Color(0xFFFF9500),
                         onClick = {
@@ -1591,14 +1612,14 @@ private fun SessionDialogs(
 
     state.deleteSession?.let { session ->
         AlertDialog(
-            onDismissRequest = viewModel::dismissDelete,
+            onDismissRequest = { if (!state.isMutating) viewModel.dismissDelete() },
             title = { Text(localizedString("Delete Session?")) },
-            text = { Text("Delete ${session.title ?: "this session"}? This cannot be undone.") },
+            text = { Text(session.title ?: localizedString("Delete Session?")) },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmDelete, enabled = !state.isMutating) { Text(localizedString("Delete")) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDelete) { Text(localizedString("Cancel")) }
+                TextButton(onClick = viewModel::dismissDelete, enabled = !state.isMutating) { Text(localizedString("Cancel")) }
             },
         )
     }
@@ -1616,7 +1637,7 @@ private fun SessionDialogs(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.confirmBranch(onOpenChat) }, enabled = !state.isMutating) { Text(localizedString("Branch")) }
+                TextButton(onClick = viewModel::confirmBranch, enabled = !state.isMutating) { Text(localizedString("Branch")) }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::dismissBranch) { Text(localizedString("Cancel")) }
@@ -1656,7 +1677,7 @@ private fun SessionDialogs(
         AlertDialog(
             onDismissRequest = viewModel::dismissDeleteProject,
             title = { Text(localizedString("Delete Project?")) },
-            text = { Text("Sessions in ${project.displayName} will move to No project. The sessions themselves will not be deleted.") },
+            text = { Text(project.displayName) },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmDeleteProject, enabled = !state.isMutating) { Text(localizedString("Delete")) }
             },
@@ -1765,10 +1786,7 @@ private val SessionSummary.relativeDate: String?
 private suspend fun shareSessionExport(context: Context, export: SessionExportFile): Result<Unit> =
     runCatching {
         val uri = withContext(Dispatchers.IO) {
-            val exportDir = context.createExportDirectory("session")
-            val file = File(exportDir, export.filename)
-            file.writeBytes(export.data)
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", export.file)
         }
         val intent = Intent(Intent.ACTION_SEND)
             .setType(export.mimeType)

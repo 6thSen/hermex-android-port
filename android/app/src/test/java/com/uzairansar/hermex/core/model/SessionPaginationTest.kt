@@ -60,4 +60,18 @@ class SessionPaginationTest {
         assertEquals(listOf("m1", "m2", "m3"), merged.map { it.messageId })
         assertEquals("Current user", merged[1].content)
     }
+
+    @Test
+    fun prependOlderMessagesRemovesDuplicatesAlreadyPresentInCurrentPage() {
+        val merged = ChatMessagePageMerger.prependOlderMessages(
+            olderMessages = emptyList(),
+            currentMessages = listOf(
+                ChatMessage(messageId = "m1", role = "assistant", content = "stale"),
+                ChatMessage(messageId = "m1", role = "assistant", content = "latest"),
+            ),
+        )
+
+        assertEquals(1, merged.size)
+        assertEquals("latest", merged.single().content)
+    }
 }

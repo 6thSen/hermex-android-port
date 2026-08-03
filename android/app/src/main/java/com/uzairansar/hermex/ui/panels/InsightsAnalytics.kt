@@ -14,14 +14,14 @@ enum class InsightsDataSource {
 data class SessionUsageAnalytics(
     val sessions: List<SessionSummary>,
 ) {
-    val totalInputTokens: Int = sessions.sumOf { it.inputTokens ?: 0 }
-    val totalOutputTokens: Int = sessions.sumOf { it.outputTokens ?: 0 }
-    val totalTokens: Int = totalInputTokens + totalOutputTokens
-    val totalMessages: Int = sessions.sumOf { it.messageCount ?: 0 }
+    val totalInputTokens: Long = sessions.sumOf { (it.inputTokens ?: 0).toLong() }
+    val totalOutputTokens: Long = sessions.sumOf { (it.outputTokens ?: 0).toLong() }
+    val totalTokens: Long = totalInputTokens + totalOutputTokens
+    val totalMessages: Long = sessions.sumOf { (it.messageCount ?: 0).toLong() }
     val estimatedCost: Double = sessions.sumOf { it.estimatedCost ?: 0.0 }
     val sessionCount: Int = sessions.size
     val topSessions: List<SessionSummary> =
-        sessions.sortedByDescending { (it.inputTokens ?: 0) + (it.outputTokens ?: 0) }
+        sessions.sortedByDescending { (it.inputTokens ?: 0).toLong() + (it.outputTokens ?: 0).toLong() }
 }
 
 fun List<SessionSummary>.analyticsFor(

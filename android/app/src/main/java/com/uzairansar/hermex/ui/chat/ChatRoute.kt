@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -71,6 +72,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -83,9 +86,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
@@ -125,6 +130,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.uzairansar.hermex.core.runSuspendCatching
 import com.uzairansar.hermex.core.model.ApprovalChoice
 import com.uzairansar.hermex.core.model.ChatMessage
 import com.uzairansar.hermex.core.model.CompressionReferenceCard
@@ -182,11 +188,13 @@ import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContainerColor
 import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContentColor
 import com.uzairansar.hermex.ui.theme.primaryActionTintApplies
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import java.io.File
@@ -314,8 +322,10 @@ fun ChatRoute(
     val dictationController = remember(context) { VoiceDictationController(context) }
     val streamNotifier = remember(context) { StreamStatusNotifier(context.applicationContext) }
     val ttsState = remember { mutableStateOf<TextToSpeech?>(null) }
+    val isTtsReady = remember { mutableStateOf(false) }
     val serverSpeechPlayer = remember { mutableStateOf<MediaPlayer?>(null) }
     val serverSpeechFile = remember { mutableStateOf<File?>(null) }
+    var speechJob by remember { mutableStateOf<Job?>(null) }
     val speechScope = rememberCoroutineScope()
     val modelPickerScope = rememberCoroutineScope()
     val releaseServerSpeech: () -> Unit = {
@@ -332,15 +342,24 @@ fun ChatRoute(
     }
 
     DisposableEffect(context) {
-        val tts = TextToSpeech(context) { }
+        var tts: TextToSpeech? = null
+        tts = TextToSpeech(context) { status ->
+            if (ttsState.value === tts) {
+                isTtsReady.value = status == TextToSpeech.SUCCESS
+                if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault()
+            }
+        }
         ttsState.value = tts
         onDispose {
+            speechJob?.cancel()
+            speechJob = null
             if (recorder.isRecording) viewModel.cancelVoiceNote(recorder)
             dictationController.cancel()
             releaseServerSpeech()
             tts.stop()
             tts.shutdown()
             ttsState.value = null
+            isTtsReady.value = false
         }
     }
 
@@ -358,10 +377,10 @@ fun ChatRoute(
         }
         uris.take(availableSlots).forEach { uri -> viewModel.attach(context, uri) }
     }
-    var pendingVoicePermissionAction by remember { mutableStateOf<VoicePermissionAction?>(null) }
+    var pendingVoicePermissionAction by rememberSaveable { mutableStateOf<VoicePermissionAction?>(null) }
     var isVoiceDictating by remember { mutableStateOf(false) }
-    var voiceDictationError by remember { mutableStateOf<String?>(null) }
-    var voiceDictationBaseDraft by remember { mutableStateOf("") }
+    var voiceDictationError by rememberSaveable { mutableStateOf<String?>(null) }
+    var voiceDictationBaseDraft by rememberSaveable { mutableStateOf("") }
     val beginVoiceDictation: () -> Unit = {
         if (isVoiceDictating) {
             dictationController.stop()
@@ -411,23 +430,25 @@ fun ChatRoute(
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
-    var showsModelPicker by remember { mutableStateOf(false) }
-    var showsProfilePicker by remember { mutableStateOf(false) }
-    var showsReasoningPicker by remember { mutableStateOf(false) }
-    var showsWorkspacePicker by remember { mutableStateOf(false) }
-    var showsAttachmentOptions by remember { mutableStateOf(false) }
+    var showsModelPicker by rememberSaveable { mutableStateOf(false) }
+    var showsProfilePicker by rememberSaveable { mutableStateOf(false) }
+    var showsReasoningPicker by rememberSaveable { mutableStateOf(false) }
+    var showsWorkspacePicker by rememberSaveable { mutableStateOf(false) }
+    var showsAttachmentOptions by rememberSaveable { mutableStateOf(false) }
     var selectedTextContext by remember { mutableStateOf<MessageActionContext?>(null) }
     var editingMessageContext by remember { mutableStateOf<MessageActionContext?>(null) }
     var editDiscardContext by remember { mutableStateOf<MessageActionContext?>(null) }
     var regenerateDiscardContext by remember { mutableStateOf<MessageActionContext?>(null) }
     var editMessageDraft by remember { mutableStateOf("") }
-    var showsClearConversationConfirmation by remember { mutableStateOf(false) }
+    var showsClearConversationConfirmation by rememberSaveable { mutableStateOf(false) }
     var turnDiffPresentation by remember { mutableStateOf<TurnDiffPresentation?>(null) }
-    var autoVoiceConsumed by remember(sessionId, autoStartVoice) { mutableStateOf(false) }
+    var autoVoiceConsumed by rememberSaveable(sessionId, autoStartVoice) { mutableStateOf(false) }
     var topBarHeightPx by remember(sessionId) { mutableIntStateOf(0) }
     var composerHeightPx by remember(sessionId) { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val topBarHeight = with(density) { topBarHeightPx.toDp() }.takeIf { it > 0.dp } ?: 82.dp
+    val statusBarHeight = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    val transcriptTopPadding = (topBarHeight - statusBarHeight).coerceAtLeast(0.dp) + 8.dp
     val composerHeight = with(density) { composerHeightPx.toDp() }.takeIf { it > 0.dp } ?: 160.dp
     val transcriptListState = rememberLazyListState()
     val isTranscriptDragged by transcriptListState.interactionSource.collectIsDraggedAsState()
@@ -435,8 +456,14 @@ fun ChatRoute(
     val isTranscriptAtBottom by remember(sessionId, transcriptListState) {
         derivedStateOf {
             val layout = transcriptListState.layoutInfo
-            layout.totalItemsCount == 0 ||
-                layout.visibleItemsInfo.lastOrNull()?.index == layout.totalItemsCount - 1
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()
+            isTranscriptBottomVisible(
+                totalItemsCount = layout.totalItemsCount,
+                lastVisibleIndex = lastVisible?.index ?: -1,
+                lastVisibleOffset = lastVisible?.offset ?: 0,
+                lastVisibleSize = lastVisible?.size ?: 0,
+                viewportEndOffset = layout.viewportEndOffset,
+            )
         }
     }
 
@@ -486,7 +513,7 @@ fun ChatRoute(
         withFrameNanos { }
         if (followsTranscriptBottom && !transcriptListState.isScrollInProgress) {
             val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
-            if (lastItem >= 0) transcriptListState.scrollToItem(lastItem)
+            if (lastItem >= 0) transcriptListState.scrollToItem(lastItem, Int.MAX_VALUE)
         }
     }
 
@@ -506,11 +533,17 @@ fun ChatRoute(
         clipboard.setPrimaryClip(ClipData.newPlainText("Hermex message", text))
     }
     val speakLocally: (String) -> Unit = { text ->
-        ttsState.value?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hermex-message")
+        if (isTtsReady.value) {
+            ttsState.value?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hermex-message")
+        }
     }
     val listenText: (String) -> Unit = { text ->
-        speechScope.launch {
+        speechJob?.cancel()
+        releaseServerSpeech()
+        ttsState.value?.stop()
+        speechJob = speechScope.launch {
             val audio = viewModel.synthesizeSpeech(text)
+            if (!isActive) return@launch
             if (audio == null || audio.isEmpty()) {
                 speakLocally(text)
                 return@launch
@@ -530,6 +563,11 @@ fun ChatRoute(
                     }
                 }
             }.getOrNull()
+            if (!isActive) {
+                prepared?.first?.release()
+                prepared?.second?.delete()
+                return@launch
+            }
             val played = prepared?.let { (player, audioFile) ->
                 releaseServerSpeech()
                 serverSpeechPlayer.value = player
@@ -546,6 +584,7 @@ fun ChatRoute(
                 releaseServerSpeech()
                 speakLocally(text)
             }
+            speechJob = null
         }
     }
     val transcriptMessagesAfter: (MessageActionContext) -> Int = remember(
@@ -682,13 +721,14 @@ fun ChatRoute(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
+                        .padding(top = statusBarHeight)
                         .testTag("chat_transcript")
                         .hermexHazeSource(key = "chat-transcript"),
                     state = transcriptListState,
                     contentPadding = PaddingValues(
                         start = 14.dp,
                         end = 14.dp,
-                        top = topBarHeight + 8.dp,
+                        top = transcriptTopPadding,
                         bottom = composerHeight + 40.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -901,6 +941,11 @@ fun ChatRoute(
             onBack = onBack,
             onOpenWorkspace = onOpenWorkspace,
             onOpenGit = onOpenGit,
+            canClearConversation = state.messages.isNotEmpty() &&
+                !state.isStreaming &&
+                !state.isRunningSessionAction &&
+                !state.isViewingCachedData,
+            onClearConversation = { showsClearConversationConfirmation = true },
             modifier = Modifier.onSizeChanged { topBarHeightPx = it.height },
         )
     }
@@ -1237,13 +1282,13 @@ private fun RemoteAttachmentImageTile(
     ) {
         when {
             remoteLoadBlocked -> Text(
-                "REMOTE\nHTTP blocked",
+                "${localizedString("Remote")}\nHTTP",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
             isRemote && !remoteLoadApproved -> Text(
-                "REMOTE\nTap to load",
+                localizedString("Load remote image"),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1251,14 +1296,14 @@ private fun RemoteAttachmentImageTile(
             bitmap != null -> {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "Image attachment",
+                    contentDescription = localizedString("Image"),
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
             !didAttemptLoad -> CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
             else -> Text(
-                "IMG",
+                localizedString("Image"),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.SemiBold,
@@ -1359,8 +1404,11 @@ private fun ChatTopBar(
     onBack: () -> Unit,
     onOpenWorkspace: () -> Unit,
     onOpenGit: () -> Unit,
+    canClearConversation: Boolean,
+    onClearConversation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var actionsExpanded by rememberSaveable { mutableStateOf(false) }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1372,8 +1420,10 @@ private fun ChatTopBar(
                 tintEnabled = false,
                 drawsBorder = false,
                 noiseFactor = 0f,
+                blurRadius = 10.dp,
             )
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.68f))
+            .padding(horizontal = 14.dp, vertical = 4.dp)
             .testTag("chat_top_bar"),
     ) {
         HermexIconButton(
@@ -1386,20 +1436,20 @@ private fun ChatTopBar(
             modifier = Modifier
                 .align(Alignment.Center)
                 .fillMaxWidth()
-                .padding(horizontal = if (hasRepository) 108.dp else 64.dp),
+                .padding(horizontal = if (hasRepository) 152.dp else 108.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1407,35 +1457,50 @@ private fun ChatTopBar(
                 )
             }
         }
-        if (hasRepository) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .hermexGlass(shape = CircleShape, castsShadow = false)
-                    .padding(2.dp),
-            ) {
-                HermexIconButton(
-                    label = localizedString("Files"),
-                    symbol = "\u2302",
-                    onClick = onOpenWorkspace,
-                    tonalContainerColor = Color.Transparent,
-                    modifier = Modifier.size(48.dp),
-                )
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .hermexGlass(shape = CircleShape, castsShadow = false)
+                .padding(1.dp),
+        ) {
+            HermexIconButton(
+                label = localizedString("Files"),
+                symbol = "\u2302",
+                onClick = onOpenWorkspace,
+                tonalContainerColor = Color.Transparent,
+                modifier = Modifier.size(44.dp),
+            )
+            if (hasRepository) {
                 HermexIconButton(
                     label = localizedString("Git"),
                     symbol = "Git",
                     onClick = onOpenGit,
                     tonalContainerColor = Color.Transparent,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(44.dp),
                 )
             }
-        } else {
-            HermexIconButton(
-                label = localizedString("Files"),
-                symbol = "\u2302",
-                onClick = onOpenWorkspace,
-                modifier = Modifier.align(Alignment.CenterEnd),
-            )
+            Box {
+                HermexIconButton(
+                    label = localizedString("Session actions"),
+                    symbol = "\u22ef",
+                    onClick = { actionsExpanded = true },
+                    tonalContainerColor = Color.Transparent,
+                    modifier = Modifier.size(44.dp),
+                )
+                DropdownMenu(
+                    expanded = actionsExpanded,
+                    onDismissRequest = { actionsExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(localizedString("Clear conversation")) },
+                        enabled = canClearConversation,
+                        onClick = {
+                            actionsExpanded = false
+                            onClearConversation()
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -1493,11 +1558,12 @@ private fun ChatStatusStack(
 
 @Composable
 private fun ChatTranscriptLoadingSkeleton() {
+    val loadingDescription = localizedString("Loading messages")
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(bottom = 132.dp)
-            .semantics { contentDescription = "Loading messages" },
+            .semantics { contentDescription = loadingDescription },
         contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(
@@ -1603,7 +1669,7 @@ private fun LoadOlderMessagesButton(
                 Spacer(Modifier.width(8.dp))
             }
             Text(
-                if (isLoading) "Loading older messages" else "Load older messages",
+                localizedString(if (isLoading) "Loading older messages" else "Load older messages"),
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1617,11 +1683,12 @@ private fun ChatTranscriptErrorState(
     errorMessage: String,
     onRetry: () -> Unit,
 ) {
+    val errorDescription = localizedString("Could Not Load Messages")
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 32.dp)
-            .semantics { contentDescription = "Could Not Load Messages" },
+            .semantics { contentDescription = errorDescription },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1640,7 +1707,7 @@ private fun ChatTranscriptErrorState(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            errorMessage.ifBlank { "Something went wrong." },
+            localizedString(errorMessage.ifBlank { "Something went wrong." }),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.secondary,
         )
@@ -1654,11 +1721,12 @@ private fun ChatTranscriptErrorState(
 
 @Composable
 private fun ChatTranscriptEmptyState() {
+    val emptyDescription = localizedString("Send a message to start the conversation.")
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 32.dp)
-            .semantics { contentDescription = "Send a message to start the conversation." },
+            .semantics { contentDescription = emptyDescription },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1798,7 +1866,7 @@ private fun SlashAutocompleteSurface(
                             }
                         }
                         Text(
-                            text = if (suggestion.isSelected) "Current" else suggestion.detail,
+                            text = if (suggestion.isSelected) localizedString("Current") else suggestion.detail,
                             style = MaterialTheme.typography.labelMedium,
                             color = if (suggestion.isSelected) {
                                 MaterialTheme.colorScheme.primary
@@ -1850,6 +1918,9 @@ private fun ComposerSurface(
     loadAttachmentFile: suspend (String) -> FileResponse?,
 ) {
     var previewAttachment by remember { mutableStateOf<UploadResponse?>(null) }
+    val messageDescription = localizedString("message").replaceFirstChar { character ->
+        if (character.isLowerCase()) character.titlecase() else character.toString()
+    }
     val isImeVisible = WindowInsets.isImeVisible
     val slashAutocompleteContext = remember(
         state.modelOptions,
@@ -1923,7 +1994,7 @@ private fun ComposerSurface(
                     .fillMaxWidth()
                     .heightIn(min = 52.dp, max = 132.dp)
                     .padding(horizontal = 18.dp, vertical = 14.dp)
-                    .semantics { contentDescription = "Message" },
+                    .semantics { contentDescription = messageDescription },
                 enabled = !state.isViewingCachedData,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     color = if (state.isViewingCachedData) {
@@ -1940,7 +2011,7 @@ private fun ComposerSurface(
                     ) {
                         if (state.draft.isEmpty()) {
                             Text(
-                                if (state.isViewingCachedData) "Reconnect to send messages." else "Ask anything... /commands",
+                                localizedString(if (state.isViewingCachedData) "Reconnect to send messages." else "Ask anything... /commands"),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.secondary,
                             )
@@ -1992,7 +2063,7 @@ private fun ComposerSurface(
                     enabled = !state.isStreaming && !state.isViewingCachedData && !state.isRecordingVoiceNote && !state.isTranscribingVoiceNote && !state.isRunningSessionAction,
                 )
                 HermexIconButton(
-                    label = if (state.isStreaming) "Stop" else "Send",
+                    label = localizedString(if (state.isStreaming) "Stop" else "Send"),
                     symbol = if (state.isStreaming) "■" else "↑",
                     onClick = if (state.isStreaming) onCancel else onSend,
                     enabled = if (state.isStreaming) {
@@ -2001,15 +2072,17 @@ private fun ComposerSurface(
                         state.draft.isNotBlank() &&
                             !state.isViewingCachedData &&
                             !state.isRunningSessionAction &&
-                            !state.isUploadingAttachment
+                            !state.isUploadingAttachment &&
+                            !state.isRecordingVoiceNote &&
+                            !state.isTranscribingVoiceNote
                     },
                     filled = true,
                     filledContainerColor = hermexPrimaryActionContainerColor(
-                        if (state.isStreaming) true else state.draft.isNotBlank() && !state.isViewingCachedData && !state.isRunningSessionAction && !state.isUploadingAttachment,
+                        if (state.isStreaming) true else state.draft.isNotBlank() && !state.isViewingCachedData && !state.isRunningSessionAction && !state.isUploadingAttachment && !state.isRecordingVoiceNote && !state.isTranscribingVoiceNote,
                         primaryActionTintColor,
                     ),
                     filledContentColor = hermexPrimaryActionContentColor(
-                        if (state.isStreaming) true else state.draft.isNotBlank() && !state.isViewingCachedData && !state.isRunningSessionAction && !state.isUploadingAttachment,
+                        if (state.isStreaming) true else state.draft.isNotBlank() && !state.isViewingCachedData && !state.isRunningSessionAction && !state.isUploadingAttachment && !state.isRecordingVoiceNote && !state.isTranscribingVoiceNote,
                         primaryActionTintColor,
                     ),
                     modifier = Modifier.size(48.dp),
@@ -2091,7 +2164,7 @@ private fun ComposerVoiceRecordingStatus(
     onStop: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    var nowMillis by remember(startedAtMillis) { mutableStateOf(System.currentTimeMillis()) }
+    var nowMillis by remember(startedAtMillis) { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(startedAtMillis) {
         while (startedAtMillis != null) {
             nowMillis = System.currentTimeMillis()
@@ -2232,6 +2305,7 @@ private fun ContextWindowIndicator(snapshot: ContextWindowSnapshot) {
     val percentage = snapshot.percentage ?: return
     var showsDetails by remember { mutableStateOf(false) }
     val clamped = percentage.coerceIn(0.0, 1.0)
+    val contextWindowDescription = "${localizedString("Context Window")} ${(clamped * 100).toInt()}%"
     val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)
     val progressColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
     Box(
@@ -2240,7 +2314,7 @@ private fun ContextWindowIndicator(snapshot: ContextWindowSnapshot) {
             .clip(CircleShape)
             .clickable { showsDetails = true }
             .semantics(mergeDescendants = true) {
-                contentDescription = "Context window ${(clamped * 100).toInt()} percent"
+                contentDescription = contextWindowDescription
             }
             .hermexGlass(shape = CircleShape, castsShadow = false),
         contentAlignment = Alignment.Center,
@@ -2392,11 +2466,11 @@ private fun ModelPickerDialog(
     onToggleFavorite: (ModelSummary) -> Unit,
     onDeleteSavedCustom: (ModelSummary) -> Unit,
 ) {
-    var searchText by remember { mutableStateOf("") }
-    var customModelId by remember { mutableStateOf("") }
-    var customProviderId by remember { mutableStateOf("") }
-    var expandedGroupIds by remember { mutableStateOf(emptySet<String>()) }
-    var collapsedSearchGroupIds by remember { mutableStateOf(emptySet<String>()) }
+    var searchText by rememberSaveable { mutableStateOf("") }
+    var customModelId by rememberSaveable { mutableStateOf("") }
+    var customProviderId by rememberSaveable { mutableStateOf("") }
+    var expandedGroupIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var collapsedSearchGroupIds by rememberSaveable { mutableStateOf(emptySet<String>()) }
     val query = searchText.trim()
     val providerChoices = remember(models, selected) { modelProviderChoices(models, selected) }
     val customOption = remember(customModelId, customProviderId) {
@@ -2452,7 +2526,11 @@ private fun ModelPickerDialog(
                 shape = HermexCardShape,
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("model_picker_list"),
+            ) {
                 item("custom-model-entry") {
                     CustomModelEntry(
                         modelId = customModelId,
@@ -2934,8 +3012,8 @@ private fun WorkspacePickerDialog(
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
 ) {
-    var prefix by remember { mutableStateOf("") }
-    var acceptedWorkspacePath by remember { mutableStateOf<String?>(null) }
+    var prefix by rememberSaveable { mutableStateOf("") }
+    var acceptedWorkspacePath by rememberSaveable { mutableStateOf<String?>(null) }
     val effectiveSelected = acceptedWorkspacePath ?: selected
     LaunchedEffect(prefix) {
         if (prefix.isNotBlank()) {
@@ -3777,7 +3855,7 @@ private fun TranscriptMediaThumbnailView(
             ) {
                 Text(localizedString("Load remote image"), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "This contacts ${remoteHost ?: "an external server"}.",
+                    remoteHost ?: localizedString("Remote"),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -3788,7 +3866,7 @@ private fun TranscriptMediaThumbnailView(
         bitmap != null -> {
             Image(
                 bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Open media image ${reference.displayName}",
+                contentDescription = localizedStringFormat("Open media image %@", reference.displayName),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(width = 210.dp, height = 132.dp)
@@ -3845,7 +3923,7 @@ private fun TranscriptMediaUnavailableChip(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                detail,
+                localizedString(detail),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -4036,19 +4114,27 @@ private fun TranscriptLinkPreviewCard(
 ) {
     val context = LocalContext.current
     val shape = RoundedCornerShape(12.dp)
-    val metadata by produceState(LinkPreviewMetadata(), url) {
-        value = LinkPreviewMetadataProvider.metadata(url)
+    val canLoadPreview = url.isHttps
+    var previewRequested by remember(url) { mutableStateOf(false) }
+    val metadata by produceState(LinkPreviewMetadata(), url, previewRequested) {
+        if (previewRequested && canLoadPreview) value = LinkPreviewMetadataProvider.metadata(url)
     }
-    val previewBitmap = remember(metadata.imageBytes) {
-        metadata.imageBytes?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-    }
+    val previewBitmap = rememberDecodedBitmap(
+        bytes = metadata.imageBytes,
+        maxDimension = 1_024,
+        maxPixels = 1_500_000L,
+    )
     Row(
         modifier = modifier
             .widthIn(max = 300.dp)
             .clip(shape)
             .clickable {
-                runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
+                if (canLoadPreview && !previewRequested) {
+                    previewRequested = true
+                } else {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
+                    }
                 }
             }
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
@@ -4088,7 +4174,8 @@ private fun TranscriptLinkPreviewCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                metadata.description ?: url.transcriptPreviewDisplayText(),
+                metadata.description
+                    ?: if (canLoadPreview && !previewRequested) localizedString("Details") else url.transcriptPreviewDisplayText(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -4106,10 +4193,11 @@ private fun TranscriptLinkPreviewCard(
 
 @Composable
 private fun AssistantTurnHeader(timestamp: Double?) {
+    val timestampDescription = localizedString("Response Timestamps")
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { contentDescription = "Assistant response timestamp" },
+            .semantics { contentDescription = timestampDescription },
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -4379,6 +4467,7 @@ private fun LiveToolActivityCard(
 
 @Composable
 private fun AssistantTypingIndicator() {
+    val typingDescription = localizedString("Hermex is preparing a response")
     val transition = rememberInfiniteTransition(label = "assistant-typing")
     val scale by transition.animateFloat(
         initialValue = 0.86f,
@@ -4402,7 +4491,7 @@ private fun AssistantTypingIndicator() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { contentDescription = "Hermex is preparing a response" },
+            .semantics { contentDescription = typingDescription },
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
@@ -4572,7 +4661,7 @@ private fun GitTurnDiffSheet(
                 ?: files.firstOrNull(),
         )
     }
-    var retryNonce by remember(presentation) { mutableStateOf(0) }
+    var retryNonce by remember(presentation) { mutableIntStateOf(0) }
     var diff by remember(presentation) { mutableStateOf<GitDiffResponse?>(null) }
     var error by remember(presentation) { mutableStateOf<String?>(null) }
     var isLoading by remember(presentation) { mutableStateOf(false) }
@@ -4589,7 +4678,7 @@ private fun GitTurnDiffSheet(
         isLoading = true
         error = null
         diff = null
-        runCatching { repository.diff(sessionId, path, file.gitDiffKind()) }
+        runSuspendCatching { repository.diff(sessionId, path, file.gitDiffKind()) }
             .onSuccess { response ->
                 diff = response
                 error = response.error
@@ -5127,8 +5216,8 @@ private fun InlineAudioAttachmentPlayer(
     var player by remember(path) { mutableStateOf<MediaPlayer?>(null) }
     var tempFile by remember(path) { mutableStateOf<File?>(null) }
     var isPlaying by remember(path) { mutableStateOf(false) }
-    var currentMs by remember(path) { mutableStateOf(0) }
-    var durationMs by remember(path) { mutableStateOf(0) }
+    var currentMs by remember(path) { mutableIntStateOf(0) }
+    var durationMs by remember(path) { mutableIntStateOf(0) }
     var remoteLoadApproved by remember(path) { mutableStateOf(false) }
     val remoteUrl = remember(path) {
         path?.let { (TranscriptMediaReference(it).source as? TranscriptMediaSource.RemoteUrl)?.url }

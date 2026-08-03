@@ -1064,6 +1064,7 @@
     <string name="l10n_7bab0e5ded8bc6f0" formatted="false">"Escribe un ID de modelo exactamente como lo espera el servidor."</string>
     <string name="l10n_1d4d43cc6f3a833e" formatted="false">"Listo"</string>
     <string name="l10n_9d051101e772ba11" formatted="false">"El árbol de trabajo está limpio."</string>
+    <string name="l10n_c3447e7954fa5698" formatted="false">"Ajustar líneas de bloque de código"</string>
     <string name="l10n_650c8b9689349c6f" formatted="false">"Android y Atajos"</string>
     <string name="l10n_4995a18a7feb07d3" formatted="false">"Notificaciones de Android permitidas."</string>
     <string name="l10n_6ffbb15ebde8242f" formatted="false">"Notificaciones de Android desactivadas."</string>
@@ -1075,12 +1076,16 @@
     <string name="l10n_e926bfb2bfdf0fb3" formatted="false">"%lld sesiones archivadas"</string>
     <string name="l10n_a91bcce893b5de90" formatted="false">"Siempre"</string>
     <string name="l10n_b52b36b7269fbfc5" formatted="false">"Atrás"</string>
+    <string name="l10n_9d0de6c0ee2fc2e7" formatted="false">"No se pudo iniciar la recuperaci?n de la transmisi?n en segundo plano."</string>
     <string name="l10n_2df57c166c21b929" formatted="false">"Confirmar selección"</string>
     <string name="l10n_8fdb5e04fadec4fa" formatted="false">"Ventana de contexto"</string>
+    <string name="l10n_c2b5cadf49d51715" formatted="false">"No se pudieron interpretar los encabezados personalizados."</string>
+    <string name="l10n_98de890b6fcd67b1" formatted="false">"No se pudo restablecer el almacenamiento seguro."</string>
     <string name="l10n_53577bb5df0ee9b6" formatted="false">"Denegar"</string>
     <string name="l10n_dc3decbb93847518" formatted="false">"Detalles"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"Descartar"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"Cambios de archivos"</string>
+    <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex no pudo abrir los datos cifrados de la cuenta. Al restablecer se eliminar?n de este dispositivo los servidores guardados, las cookies de inicio de sesi?n y los encabezados personalizados."</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"Cargar imagen remota"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"Nombre: valor"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"Abrir"</string>
@@ -1088,12 +1093,15 @@
     <string name="l10n_bfa710ae1583142c" formatted="false">"Solicitudes pendientes: %lld"</string>
     <string name="l10n_d325fcd919384f39" formatted="false">"Poner en cola"</string>
     <string name="l10n_409a421432653b85" formatted="false">"Grabando nota de voz"</string>
+    <string name="l10n_fdc37d196084ba7a" formatted="false">"Restablecer datos seguros"</string>
     <string name="l10n_6e617e4fc9da3de9" formatted="false">"Respuesta"</string>
     <string name="l10n_29251fb4a89acc46" formatted="false">"Guardando memoria..."</string>
+    <string name="l10n_5c36abc75309eaa9" formatted="false">"El almacenamiento seguro necesita recuperaci?n"</string>
     <string name="l10n_1dfa53963abca0f4" formatted="false">"Enviando nota de voz..."</string>
     <string name="l10n_ed2a7acac11f4394" formatted="false">"Las URL de servidores, los encabezados personalizados y las cookies se guardan en el almacenamiento cifrado de Android."</string>
     <string name="l10n_09ca55ca52d207f2" formatted="false">"Compartir"</string>
     <string name="l10n_12f98a70d6319400" formatted="false">"Mostrar extractos de respuesta"</string>
+    <string name="l10n_7cdb45a0a913f5a9" formatted="false">"No se pudo iniciar sesi?n."</string>
     <string name="l10n_ca6d0e3aaa7d6cc0" formatted="false">"Preparar"</string>
     <string name="l10n_3e44c920427e845d" formatted="false">"Cambiar"</string>
     <string name="l10n_7298d7ed988425fb" formatted="false">"Quitar de preparados"</string>

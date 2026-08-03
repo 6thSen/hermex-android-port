@@ -1,7 +1,11 @@
 package com.uzairansar.hermex.ui.workspace
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.uzairansar.hermex.ui.SavedStatePolicy
+import com.uzairansar.hermex.ui.setBoundedString
+import com.uzairansar.hermex.core.runSuspendCatching
 import com.uzairansar.hermex.core.model.FileResponse
 import com.uzairansar.hermex.core.model.WorkspaceEntry
 import com.uzairansar.hermex.core.model.WorkspaceRoot
@@ -11,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 data class WorkspaceUiState(
@@ -56,10 +62,20 @@ data class BinaryPreview(
 class WorkspaceViewModel(
     private val sessionId: String,
     private val repository: WorkspaceRepository,
+    private val savedStateHandle: SavedStateHandle? = null,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(WorkspaceUiState())
+    private val _state = MutableStateFlow(
+        WorkspaceUiState(
+            currentPath = savedStateHandle?.get<String>(SAVED_CURRENT_PATH)
+                ?.let { SavedStatePolicy.boundedInput(it) },
+            searchText = savedStateHandle?.get<String>(SAVED_SEARCH_TEXT)
+                ?.let { SavedStatePolicy.boundedInput(it, SavedStatePolicy.MaximumSearchCharacters) }
+                .orEmpty(),
+        ),
+    )
     val state: StateFlow<WorkspaceUiState> = _state
     private var refreshJob: Job? = null
+    private var refreshGeneration = 0L
     private var previewJob: Job? = null
     private var previewGeneration = 0L
 
@@ -69,19 +85,27 @@ class WorkspaceViewModel(
 
     fun refresh() {
         val path = _state.value.currentPath
+        val generation = ++refreshGeneration
+        previewJob?.cancel()
+        previewGeneration += 1
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, preview = null, binaryPreview = null) }
-            runCatching {
-                val roots = repository.workspaces()
-                val list = repository.list(sessionId, path)
-                roots to list
+            runSuspendCatching {
+                coroutineScope {
+                    val roots = async { runSuspendCatching { repository.workspaces() } }
+                    val list = repository.list(sessionId, path)
+                    roots.await().getOrNull() to list
+                }
             }.onSuccess { (roots, list) ->
+                if (generation != refreshGeneration) return@onSuccess
                 _state.update {
                     if (it.currentPath != path) return@update it
+                    val resolvedPath = (list.path ?: path)?.let { value -> SavedStatePolicy.boundedInput(value) }
+                    savedStateHandle?.setBoundedString(SAVED_CURRENT_PATH, resolvedPath)
                     it.copy(
-                        roots = roots,
-                        currentPath = list.path ?: path,
+                        roots = roots ?: it.roots,
+                        currentPath = resolvedPath,
                         entries = list.entries.orEmpty().sortedWith(compareBy<WorkspaceEntry> { entry ->
                             if (entry.type == "directory" || entry.type == "dir") 0 else 1
                         }.thenBy { entry -> entry.name ?: entry.path.orEmpty() }),
@@ -89,7 +113,7 @@ class WorkspaceViewModel(
                     )
                 }
             }.onFailure { error ->
-                if (error is CancellationException) return@onFailure
+                if (error is CancellationException || generation != refreshGeneration) return@onFailure
                 _state.update {
                     if (it.currentPath == path) {
                         it.copy(isLoading = false, error = error.message ?: "Could not load workspace.")
@@ -122,7 +146,9 @@ class WorkspaceViewModel(
     fun loadPath(path: String?) {
         previewJob?.cancel()
         previewGeneration += 1
-        _state.update { it.copy(currentPath = path, preview = null, binaryPreview = null, isPreviewLoading = false) }
+        val boundedPath = path?.let { value -> SavedStatePolicy.boundedInput(value) }
+        savedStateHandle?.setBoundedString(SAVED_CURRENT_PATH, boundedPath)
+        _state.update { it.copy(currentPath = boundedPath, preview = null, binaryPreview = null, isPreviewLoading = false) }
         refresh()
     }
 
@@ -135,7 +161,9 @@ class WorkspaceViewModel(
     }
 
     fun updateSearchText(value: String) {
-        _state.update { it.copy(searchText = value) }
+        val boundedValue = SavedStatePolicy.boundedInput(value, SavedStatePolicy.MaximumSearchCharacters)
+        savedStateHandle?.setBoundedString(SAVED_SEARCH_TEXT, boundedValue, SavedStatePolicy.MaximumSearchCharacters)
+        _state.update { it.copy(searchText = boundedValue) }
     }
 
     fun reportError(message: String) {
@@ -154,6 +182,7 @@ class WorkspaceViewModel(
         previewJob = viewModelScope.launch {
             _state.update { it.copy(isPreviewLoading = true, error = null, preview = null, binaryPreview = null) }
             if (WorkspaceFilePreviewPolicy.isKnownUnsupportedBinary(path)) {
+                if (generation != previewGeneration) return@launch
                 _state.update {
                     it.copy(
                         binaryPreview = BinaryPreview(
@@ -171,7 +200,7 @@ class WorkspaceViewModel(
                 loadBinaryPreview(path)
                 return@launch
             }
-            runCatching { repository.file(sessionId, path) }
+            runSuspendCatching { repository.file(sessionId, path) }
                 .onSuccess { preview ->
                     if (generation != previewGeneration) return@onSuccess
                     if (shouldRenderWorkspaceTextPreview(preview.content)) {
@@ -203,7 +232,7 @@ class WorkspaceViewModel(
     }
 
     private suspend fun loadBinaryPreview(path: String, generation: Long = previewGeneration) {
-        runCatching { repository.rawFile(sessionId, path) }
+        runSuspendCatching { repository.rawFile(sessionId, path) }
             .onSuccess { bytes ->
                 if (generation != previewGeneration) return@onSuccess
                 _state.update {
@@ -226,6 +255,20 @@ class WorkspaceViewModel(
             }
     }
 
+    private companion object {
+        const val SAVED_CURRENT_PATH = "workspace_current_path"
+        const val SAVED_SEARCH_TEXT = "workspace_search_text"
+    }
+
 }
 
-internal fun shouldRenderWorkspaceTextPreview(content: String?): Boolean = content != null
+internal fun shouldRenderWorkspaceTextPreview(content: String?): Boolean {
+    val text = content ?: return false
+    if ('\u0000' in text) return false
+    if (text.isEmpty()) return true
+    val suspicious = text.count { character ->
+        (character.code < 32 && character != '\n' && character != '\r' && character != '\t') ||
+            character == '\uFFFD'
+    }
+    return suspicious <= maxOf(8, text.length / 100)
+}

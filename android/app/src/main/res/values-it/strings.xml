@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">Avvia una nuova sessione</string>
     <string name="shortcut_new_voice_short">Input vocale</string>
     <string name="shortcut_new_voice_long">Input vocale</string>
-    <string name="shortcut_panels_short">Attività</string>
-    <string name="shortcut_panels_long">Memoria</string>
-    <string name="shortcut_settings_short">Impostazioni</string>
-    <string name="shortcut_settings_long">Impostazioni</string>
     <string name="widget_description">Nuova chat</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">Sessioni</string>

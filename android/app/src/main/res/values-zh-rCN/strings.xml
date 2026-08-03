@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">开始新会话</string>
     <string name="shortcut_new_voice_short">语音输入</string>
     <string name="shortcut_new_voice_long">语音输入</string>
-    <string name="shortcut_panels_short">任务</string>
-    <string name="shortcut_panels_long">记忆</string>
-    <string name="shortcut_settings_short">设置</string>
-    <string name="shortcut_settings_long">设置</string>
     <string name="widget_description">新建聊天</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">会话</string>

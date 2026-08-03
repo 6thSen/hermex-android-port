@@ -1,7 +1,12 @@
 package com.uzairansar.hermex.ui.sessions
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.uzairansar.hermex.ui.SavedStatePolicy
+import com.uzairansar.hermex.ui.setBoundedEncodedState
+import com.uzairansar.hermex.core.runSuspendCatching
+import com.uzairansar.hermex.core.network.HermesJson
 import com.uzairansar.hermex.core.model.ProfileSummary
 import com.uzairansar.hermex.core.model.ProjectMutationResponse
 import com.uzairansar.hermex.core.model.ProjectSummary
@@ -16,13 +21,19 @@ import com.uzairansar.hermex.data.repository.PanelsRepository
 import com.uzairansar.hermex.data.repository.ResultState
 import com.uzairansar.hermex.data.repository.SessionRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 
 internal data class ProjectColorOption(
     val name: String,
@@ -42,6 +53,17 @@ internal val ProjectColorPalette = listOf(
 
 internal fun defaultProjectColorHex(existingProjectCount: Int): String =
     ProjectColorPalette[existingProjectCount.coerceAtLeast(0) % ProjectColorPalette.size].hex
+
+enum class SessionOpenDestination {
+    Chat,
+    VoiceChat,
+    SharedDraft,
+}
+
+internal sealed interface SessionListEvent {
+    data class OpenSession(val sessionId: String, val destination: SessionOpenDestination) : SessionListEvent
+    data class ExportReady(val file: SessionExportFile) : SessionListEvent
+}
 
 data class SessionListUiState(
     val sessions: List<SessionSummary> = emptyList(),
@@ -110,13 +132,73 @@ data class SessionListUiState(
         }
 }
 
+@Serializable
+private data class SessionListSavedState(
+    val selectedProjectId: String? = null,
+    val searchQuery: String = "",
+    val showArchived: Boolean = false,
+    val renameSession: SessionSummary? = null,
+    val renameDraft: String = "",
+    val deleteSession: SessionSummary? = null,
+    val branchSession: SessionSummary? = null,
+    val branchTitleDraft: String = "",
+    val newProjectName: String = "",
+    val newProjectColor: String? = null,
+    val renameProject: ProjectSummary? = null,
+    val renameProjectDraft: String = "",
+    val renameProjectColor: String? = null,
+    val deleteProject: ProjectSummary? = null,
+) {
+    fun toUiState(): SessionListUiState = SessionListUiState(
+        selectedProjectId = selectedProjectId,
+        searchQuery = searchQuery,
+        showArchived = showArchived,
+        renameSession = renameSession,
+        renameDraft = renameDraft,
+        deleteSession = deleteSession,
+        branchSession = branchSession,
+        branchTitleDraft = branchTitleDraft,
+        newProjectName = newProjectName,
+        newProjectColor = newProjectColor,
+        renameProject = renameProject,
+        renameProjectDraft = renameProjectDraft,
+        renameProjectColor = renameProjectColor,
+        deleteProject = deleteProject,
+        isLoading = true,
+    )
+
+    companion object {
+        fun from(state: SessionListUiState): SessionListSavedState = SessionListSavedState(
+            selectedProjectId = state.selectedProjectId,
+            searchQuery = state.searchQuery,
+            showArchived = state.showArchived,
+            renameSession = state.renameSession,
+            renameDraft = state.renameDraft,
+            deleteSession = state.deleteSession,
+            branchSession = state.branchSession,
+            branchTitleDraft = state.branchTitleDraft,
+            newProjectName = state.newProjectName,
+            newProjectColor = state.newProjectColor,
+            renameProject = state.renameProject,
+            renameProjectDraft = state.renameProjectDraft,
+            renameProjectColor = state.renameProjectColor,
+            deleteProject = state.deleteProject,
+        )
+    }
+}
+
 class SessionListViewModel(
     private val repository: SessionRepository,
     private val panelsRepository: PanelsRepository,
     private val localSettingsRepository: LocalSettingsRepository,
     private val serverId: String,
+    private val savedStateHandle: SavedStateHandle? = null,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(SessionListUiState(isLoading = true))
+    private val eventChannel = Channel<SessionListEvent>(Channel.BUFFERED)
+    internal val events = eventChannel.receiveAsFlow()
+    private val restoredState = savedStateHandle?.get<String>(SAVED_TRANSIENT_STATE)
+        ?.let { encoded -> runCatching { HermesJson.decodeFromString<SessionListSavedState>(encoded) }.getOrNull() }
+    private val _state = MutableStateFlow(restoredState?.toUiState() ?: SessionListUiState(isLoading = true))
     val state: StateFlow<SessionListUiState> = _state
     private var refreshJob: Job? = null
     private var remoteSearchJob: Job? = null
@@ -124,6 +206,14 @@ class SessionListViewModel(
     private var profilesGeneration = 0L
 
     init {
+        viewModelScope.launch {
+            _state.collectLatest { current ->
+                val encoded = withContext(Dispatchers.Default) {
+                    HermesJson.encodeToString(SessionListSavedState.from(current))
+                }
+                savedStateHandle?.setBoundedEncodedState(SAVED_TRANSIENT_STATE, encoded)
+            }
+        }
         viewModelScope.launch {
             localSettingsRepository.showCliSessions(serverId).collectLatest { enabled ->
                 _state.update { it.copy(showCliSessions = enabled) }
@@ -155,14 +245,7 @@ class SessionListViewModel(
                     notice = if (clearNotice) null else it.notice,
                 )
             }
-            try {
-                val projects = repository.loadProjects()
-                _state.update { it.copy(projects = projects) }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Throwable) {
-                // Sessions remain usable if project metadata cannot refresh.
-            }
+            val projects = async { runSuspendCatching { repository.loadProjects() } }
             val result = repository.loadSessions(includeArchived = requestedArchivedMode)
             if (_state.value.showArchived != requestedArchivedMode) return@launch
             when (result) {
@@ -188,6 +271,11 @@ class SessionListViewModel(
                 is ResultState.Error -> _state.update { it.copy(isLoading = false, error = result.message) }
                 ResultState.Loading -> Unit
             }
+            projects.await().onSuccess { loadedProjects ->
+                if (_state.value.showArchived == requestedArchivedMode) {
+                    _state.update { it.copy(projects = loadedProjects) }
+                }
+            }
         }
     }
 
@@ -197,11 +285,12 @@ class SessionListViewModel(
     }
 
     fun updateSearchQuery(value: String) {
-        val query = value.normalizedSearchQuery()
+        val boundedValue = SavedStatePolicy.boundedInput(value, SavedStatePolicy.MaximumSearchCharacters)
+        val query = boundedValue.normalizedSearchQuery()
         remoteSearchJob?.cancel()
         _state.update {
             it.copy(
-                searchQuery = value,
+                searchQuery = boundedValue,
                 remoteSearchQuery = query.takeIf(String::isNotEmpty),
                 remoteContentSearchSessionIds = emptyList(),
                 isSearchingRemoteSessions = false,
@@ -259,7 +348,7 @@ class SessionListViewModel(
         val generation = ++profilesGeneration
         profilesJob = viewModelScope.launch {
             _state.update { it.copy(isLoadingProfiles = true, profileError = null) }
-            runCatching { panelsRepository.profiles() }
+            runSuspendCatching { panelsRepository.profiles() }
                 .onSuccess { response ->
                     if (generation != profilesGeneration) return@onSuccess
                     _state.update {
@@ -286,22 +375,24 @@ class SessionListViewModel(
     fun switchProfile(profile: ProfileSummary) {
         val profileName = profile.name?.takeIf { it.isNotBlank() } ?: return
         if (profileName == _state.value.activeProfileName) return
+        if (_state.value.isSwitchingProfile || _state.value.isMutating) return
         profilesJob?.cancel()
         profilesGeneration += 1
+        _state.update {
+            it.copy(
+                isSwitchingProfile = true,
+                isLoadingProfiles = false,
+                profileError = null,
+                notice = null,
+                error = null,
+            )
+        }
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    isSwitchingProfile = true,
-                    isLoadingProfiles = false,
-                    profileError = null,
-                    notice = null,
-                    error = null,
-                )
-            }
-            runCatching { panelsRepository.switchProfile(profileName) }
+            runSuspendCatching { panelsRepository.switchProfile(profileName) }
                 .onSuccess { response ->
                     val error = response.error
                     if (error == null) {
+                        remoteSearchJob?.cancel()
                         _state.update {
                             it.copy(
                                 sessions = emptyList(),
@@ -310,6 +401,10 @@ class SessionListViewModel(
                                 activeProfileName = profileName,
                                 isSwitchingProfile = false,
                                 isViewingCachedData = false,
+                                remoteSearchQuery = null,
+                                remoteContentSearchSessionIds = emptyList(),
+                                isSearchingRemoteSessions = false,
+                                searchError = null,
                                 notice = "Profile set to ${profile.displayName?.takeIf { name -> name.isNotBlank() } ?: profileName}.",
                             )
                         }
@@ -334,10 +429,14 @@ class SessionListViewModel(
         _state.update { it.copy(selectedProjectId = if (it.selectedProjectId == projectId) null else projectId) }
     }
 
-    fun createSession(profile: String? = null, onCreated: (String) -> Unit) {
+    fun createSession(
+        profile: String? = null,
+        destination: SessionOpenDestination = SessionOpenDestination.Chat,
+    ) {
+        if (_state.value.isMutating || _state.value.isSwitchingProfile) return
+        _state.update { it.copy(isMutating = true, error = null, notice = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isMutating = true, error = null, notice = null) }
-            runCatching { repository.createSession(profile) }
+            runSuspendCatching { repository.createSession(profile) }
                 .onSuccess { response ->
                     val responseError = response.mutationError("The server could not create a session.")
                     val id = response.session?.sessionId
@@ -355,7 +454,7 @@ class SessionListViewModel(
                     } else {
                         _state.update { it.copy(isMutating = false, notice = "Session created.") }
                         refresh(clearNotice = false)
-                        onCreated(id)
+                        eventChannel.send(SessionListEvent.OpenSession(id, destination))
                     }
                 }
                 .onFailure { error -> _state.update { it.copy(isMutating = false, error = error.message ?: "Could not create session.") } }
@@ -412,10 +511,29 @@ class SessionListViewModel(
     }
 
     fun confirmDelete() {
-        val id = _state.value.deleteSession?.sessionId ?: return
-        _state.update { it.copy(deleteSession = null) }
-        mutate("Session deleted.") {
-            repository.delete(id).mutationError("The server could not delete the session.")
+        val session = _state.value.deleteSession ?: return
+        val id = session.sessionId ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(isMutating = true, error = null, notice = null) }
+            try {
+                val error = repository.delete(id).mutationError("The server could not delete the session.")
+                if (error == null) {
+                    _state.update { current ->
+                        current.copy(
+                            deleteSession = current.deleteSession?.takeUnless { it.sessionId == id },
+                            isMutating = false,
+                            notice = "Session deleted.",
+                        )
+                    }
+                    refresh(clearNotice = false)
+                } else {
+                    _state.update { it.copy(isMutating = false, error = error) }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _state.update { it.copy(isMutating = false, error = error.message ?: "Could not delete session.") }
+            }
         }
     }
 
@@ -431,14 +549,14 @@ class SessionListViewModel(
         _state.update { it.copy(branchSession = null, branchTitleDraft = "") }
     }
 
-    fun confirmBranch(onCreated: (String) -> Unit) {
+    fun confirmBranch() {
         val session = _state.value.branchSession ?: return
         val id = session.sessionId ?: return
         val title = _state.value.branchTitleDraft.trim().ifBlank { null }
         _state.update { it.copy(branchSession = null, branchTitleDraft = "") }
         viewModelScope.launch {
             _state.update { it.copy(isMutating = true, error = null, notice = null) }
-            runCatching { repository.branch(id, title) }
+            runSuspendCatching { repository.branch(id, title) }
                 .onSuccess { response ->
                     val responseError = response.mutationError()
                     val branchedId = response.sessionId
@@ -453,13 +571,13 @@ class SessionListViewModel(
                     }
                     _state.update { it.copy(isMutating = false, notice = "Session branched.") }
                     refresh(clearNotice = false)
-                    onCreated(branchedId)
+                    eventChannel.send(SessionListEvent.OpenSession(branchedId, SessionOpenDestination.Chat))
                 }
                 .onFailure { error -> _state.update { it.copy(isMutating = false, error = error.message ?: "Could not branch session.") } }
         }
     }
 
-    fun duplicate(session: SessionSummary, onCreated: (String) -> Unit) {
+    fun duplicate(session: SessionSummary) {
         val id = session.sessionId
         if (id.isNullOrBlank()) {
             _state.update { it.copy(error = "The server did not provide a session ID.") }
@@ -471,7 +589,7 @@ class SessionListViewModel(
         }
         viewModelScope.launch {
             _state.update { it.copy(isMutating = true, error = null, notice = null) }
-            runCatching { repository.duplicate(id, duplicateTitle(session)) }
+            runSuspendCatching { repository.duplicate(id, duplicateTitle(session)) }
                 .onSuccess { result ->
                     val duplicatedSession = result.session
                     if (duplicatedSession == null) {
@@ -496,7 +614,9 @@ class SessionListViewModel(
                         )
                     }
                     refresh(clearNotice = false)
-                    duplicatedSession.sessionId?.takeIf { it.isNotBlank() }?.let(onCreated)
+                    duplicatedSession.sessionId?.takeIf { it.isNotBlank() }?.let { sessionId ->
+                        eventChannel.send(SessionListEvent.OpenSession(sessionId, SessionOpenDestination.Chat))
+                    }
                 }
                 .onFailure { error ->
                     _state.update { it.copy(isMutating = false, error = error.message ?: "Could not duplicate session.") }
@@ -512,11 +632,7 @@ class SessionListViewModel(
         }
     }
 
-    fun exportSession(
-        session: SessionSummary,
-        format: SessionExportFormat,
-        onExported: (SessionExportFile) -> Unit,
-    ) {
+    fun exportSession(session: SessionSummary, format: SessionExportFormat) {
         val id = session.sessionId
         if (id.isNullOrBlank()) {
             _state.update { it.copy(error = "The server did not provide a session ID.") }
@@ -528,10 +644,10 @@ class SessionListViewModel(
         }
         viewModelScope.launch {
             _state.update { it.copy(isMutating = true, error = null, notice = null) }
-            runCatching { repository.exportSession(id, format, session.title) }
+            runSuspendCatching { repository.exportSession(id, format, session.title) }
                 .onSuccess { file ->
                     _state.update { it.copy(isMutating = false, notice = "Export ready.") }
-                    onExported(file)
+                    eventChannel.send(SessionListEvent.ExportReady(file))
                 }
                 .onFailure { error ->
                     _state.update { it.copy(isMutating = false, error = error.message ?: "Export failed.") }
@@ -638,9 +754,10 @@ class SessionListViewModel(
     }
 
     private fun mutate(success: String, action: suspend () -> String?) {
+        if (_state.value.isMutating || _state.value.isSwitchingProfile) return
+        _state.update { it.copy(isMutating = true, error = null, notice = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isMutating = true, error = null, notice = null) }
-            runCatching { action() }
+            runSuspendCatching { action() }
                 .onSuccess { error ->
                     if (error == null) {
                         _state.update { it.copy(isMutating = false, notice = success) }
@@ -696,6 +813,10 @@ class SessionListViewModel(
     private fun duplicateTitle(session: SessionSummary): String {
         val baseTitle = session.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled Session"
         return "$baseTitle (copy)"
+    }
+
+    private companion object {
+        const val SAVED_TRANSIENT_STATE = "session_list_transient_state"
     }
 }
 

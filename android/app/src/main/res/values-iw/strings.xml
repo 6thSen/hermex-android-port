@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">התחל מפגש חדש</string>
     <string name="shortcut_new_voice_short">קלט קולי</string>
     <string name="shortcut_new_voice_long">קלט קולי</string>
-    <string name="shortcut_panels_short">משימות</string>
-    <string name="shortcut_panels_long">זיכרון</string>
-    <string name="shortcut_settings_short">הגדרות</string>
-    <string name="shortcut_settings_long">הגדרות</string>
     <string name="widget_description">צ׳אט חדש</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">מפגשים</string>

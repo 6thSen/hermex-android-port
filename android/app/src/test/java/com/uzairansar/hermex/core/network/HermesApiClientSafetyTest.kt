@@ -7,10 +7,13 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 class HermesApiClientSafetyTest {
@@ -77,6 +80,30 @@ class HermesApiClientSafetyTest {
     }
 
     @Test
+    fun boundsStoredAndDisplayedHttpErrorBodies() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(MockResponse.Builder().code(500).body("x".repeat(100_000)).build())
+
+            val error = runCatching { HermesApiClient(server.url("/"), OkHttpClient()).health() }
+                .exceptionOrNull() as ApiError.Http
+
+            assertTrue(error.body.orEmpty().length <= 64 * 1024)
+            assertTrue(error.message.orEmpty().length <= 520)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun htmlErrorBodiesAreNotRenderedAsUserMessages() {
+        val error = ApiError.Http(502, "<html><body>proxy failure</body></html>")
+
+        assertEquals("HTTP 502 request failed.", error.message)
+    }
+
+    @Test
     fun cronUpdateSendsExplicitNullsForClearableFields() = runBlocking {
         val server = MockWebServer()
         try {
@@ -122,23 +149,27 @@ class HermesApiClientSafetyTest {
     }
 
     @Test
-    fun crossOriginMediaUnauthorizedDoesNotInvalidateServerAuthentication() = runBlocking {
+    fun crossOriginMediaRejectsPublicPlainHttpWithoutInvalidatingAuthentication() = runBlocking {
         val server = MockWebServer()
         val mediaServer = MockWebServer()
         try {
             server.start()
             mediaServer.start()
-            mediaServer.enqueue(MockResponse.Builder().code(401).body("denied").build())
             var invalidations = 0
             val client = HermesApiClient(
                 baseUrl = server.url("/"),
                 client = OkHttpClient(),
                 onUnauthorized = { invalidations += 1 },
+                publicMediaDns = Dns { listOf(InetAddress.getLoopbackAddress()) },
             )
 
-            val error = runCatching { client.remoteTranscriptMediaData(mediaServer.url("/private.png")) }.exceptionOrNull()
+            val error = runCatching {
+                client.remoteTranscriptMediaData(
+                    "http://public.example:${mediaServer.port}/private.png".toHttpUrl(),
+                )
+            }.exceptionOrNull()
 
-            assertTrue(error is ApiError.Http && error.statusCode == 401)
+            assertTrue(error is ApiError.InsecureTransport)
             assertEquals(0, invalidations)
         } finally {
             server.close()

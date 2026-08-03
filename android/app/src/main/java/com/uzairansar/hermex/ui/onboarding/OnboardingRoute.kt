@@ -51,6 +51,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -68,7 +70,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -81,7 +82,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.uzairansar.hermex.R
 import com.uzairansar.hermex.data.repository.AuthRepository
@@ -93,6 +96,8 @@ import com.uzairansar.hermex.ui.theme.hermexGlass
 import com.uzairansar.hermex.ui.theme.hermexHazeSource
 import kotlinx.coroutines.launch
 import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.SecureContentEffect
+import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 private val OnboardingGold = Color(0xFFFFBD1A)
 private val OnboardingGreen = Color(0xFF73EB8F)
@@ -103,7 +108,7 @@ private const val OnboardingBackdropKey = "onboarding-backdrop"
 @Composable
 fun OnboardingRoute(
     authRepository: AuthRepository,
-    onConnected: () -> Unit,
+    onConnected: suspend () -> Unit,
 ) {
     HermexDarkContent {
         OnboardingRouteContent(authRepository, onConnected)
@@ -113,15 +118,24 @@ fun OnboardingRoute(
 @Composable
 private fun OnboardingRouteContent(
     authRepository: AuthRepository,
-    onConnected: () -> Unit,
+    onConnected: suspend () -> Unit,
 ) {
-    val viewModel: OnboardingViewModel = viewModel(factory = object : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            @Suppress("UNCHECKED_CAST")
-            return OnboardingViewModel(authRepository) as T
+    val factory = remember(authRepository) {
+        object : ViewModelProvider.Factory {
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return OnboardingViewModel(authRepository) as T
+            }
+
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                @Suppress("UNCHECKED_CAST")
+                return OnboardingViewModel(authRepository, extras.createSavedStateHandle()) as T
+            }
         }
-    })
+    }
+    val viewModel: OnboardingViewModel = viewModel(factory = factory)
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val latestOnConnected by rememberUpdatedState(onConnected)
     val initialPage = remember(authRepository, viewModel) {
         if (
             authRepository.state.value is AuthState.LoggedOut &&
@@ -138,9 +152,13 @@ private fun OnboardingRouteContent(
     )
     val scope = rememberCoroutineScope()
     var lastSettledPage by remember { mutableIntStateOf(initialPage) }
-    var hasCopiedAgentPrompt by remember { mutableStateOf(false) }
-    var hasBypassedCopyReminder by remember { mutableStateOf(false) }
-    var isShowingCopyReminder by remember { mutableStateOf(false) }
+    var hasCopiedAgentPrompt by rememberSaveable { mutableStateOf(false) }
+    var hasBypassedCopyReminder by rememberSaveable { mutableStateOf(false) }
+    var isShowingCopyReminder by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(state.isConnected) {
+        if (state.isConnected) latestOnConnected()
+    }
 
     LaunchedEffect(pagerState, hasCopiedAgentPrompt, hasBypassedCopyReminder) {
         snapshotFlow { pagerState.settledPage }.collect { newPage ->
@@ -223,7 +241,7 @@ private fun OnboardingRouteContent(
                     }
                 },
                 onTestConnection = viewModel::testConnection,
-                onConnect = { viewModel.connect(onConnected) },
+                onConnect = viewModel::connect,
             )
         }
     }
@@ -741,7 +759,10 @@ private fun OnboardingConnectPage(
     onPasswordChange: (String) -> Unit,
     onCustomHeadersChange: (String) -> Unit,
 ) {
-    var isShowingAdvanced by remember { mutableStateOf(false) }
+    var isShowingAdvanced by rememberSaveable { mutableStateOf(false) }
+    var showsCustomHeaders by remember { mutableStateOf(false) }
+    SecureContentEffect(showsCustomHeaders)
+    val advancedDescription = localizedString("Advanced")
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -800,8 +821,7 @@ private fun OnboardingConnectPage(
                     .clip(OnboardingShape)
                     .clickable { isShowingAdvanced = !isShowingAdvanced }
                     .semantics {
-                        contentDescription = "Advanced connection settings"
-                        stateDescription = if (isShowingAdvanced) "Expanded" else "Collapsed"
+                        contentDescription = advancedDescription
                     }
                     .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -843,8 +863,16 @@ private fun OnboardingConnectPage(
                         color = Color.White,
                         fontFamily = FontFamily.Monospace,
                     ),
+                    visualTransformation = if (showsCustomHeaders) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     enabled = !state.isBusy,
                 )
+                TextButton(onClick = { showsCustomHeaders = !showsCustomHeaders }) {
+                    Text((if (showsCustomHeaders) "ABC " else "*** ") + localizedString("Custom Headers"))
+                }
             }
         }
         if (state.isBusy) {
@@ -856,7 +884,7 @@ private fun OnboardingConnectPage(
         } else {
             state.message?.let { message ->
                 OnboardingStatusBanner(
-                    text = message,
+                    text = localizedString(message),
                     tint = if (state.messageIsError) OnboardingCoral else OnboardingGreen,
                     icon = if (state.messageIsError) {
                         R.drawable.ic_hermex_exclamation_triangle
@@ -1065,10 +1093,11 @@ private fun OnboardingPageIndicator(
     pageCount: Int,
     currentPage: Int,
 ) {
+    val pageDescription = localizedStringFormat("Page %1\$lld of %2\$lld", currentPage + 1, pageCount)
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.semantics {
-            contentDescription = "Page ${currentPage + 1} of $pageCount"
+            contentDescription = pageDescription
         },
     ) {
         repeat(pageCount) { index ->

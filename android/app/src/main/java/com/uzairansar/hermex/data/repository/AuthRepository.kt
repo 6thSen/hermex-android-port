@@ -9,6 +9,7 @@ import com.uzairansar.hermex.core.network.requireAllowedServerTransport
 import com.uzairansar.hermex.data.secure.ServerAccount
 import com.uzairansar.hermex.data.secure.ServerRegistry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -36,7 +37,10 @@ class AuthRepository(
     private val clearCachedServer: suspend (String) -> Unit = {},
 ) {
     private val authGenerations = ConcurrentHashMap<String, AtomicLong>()
+    private val accountSelectionGeneration = AtomicLong()
     private val authMutationLocks = ConcurrentHashMap<String, Mutex>()
+    private val restoredSessionValidationMutex = Mutex()
+    @Volatile private var didValidateRestoredSession = false
     private val _state = MutableStateFlow(restoreState())
     val state: StateFlow<AuthState> = _state
 
@@ -69,7 +73,7 @@ class AuthRepository(
                 val status = testConnection(client)
                 if (status.authEnabled == true) {
                     if (status.passwordAuthEnabled == false) {
-                        throw IllegalStateException("This server signs in with passkeys, which Hermex Android does not support yet.")
+                        throw IllegalStateException("This server signs in with passkeys, which Hermex doesn't support yet.")
                     }
                     if (password.isBlank()) throw IllegalArgumentException("Enter the server password.")
                     val login = client.login(password)
@@ -78,9 +82,13 @@ class AuthRepository(
                 ensureCurrentAuthGeneration(url, generation)
                 clearCacheAfterAuthentication(url, client)
                 ensureCurrentAuthGeneration(url, generation)
-                val account = registry.activate(url)
-                registry.saveCustomHeaders(account.id, customHeaders)
-                registry.setLoggedOut(account.id, false)
+                accountSelectionGeneration.incrementAndGet()
+                val account = withSecureStorage {
+                    registry.activate(url).also { activated ->
+                        registry.saveCustomHeaders(activated.id, customHeaders)
+                        registry.setLoggedOut(activated.id, false)
+                    }
+                }
                 _state.value = AuthState.LoggedIn(url, account)
             } catch (error: Throwable) {
                 discardSupersededCookies(url, generation)
@@ -110,7 +118,7 @@ class AuthRepository(
                 val status = testConnection(client)
                 if (status.authEnabled == true) {
                     if (status.passwordAuthEnabled == false) {
-                        throw IllegalStateException("This server signs in with passkeys, which Hermex Android does not support yet.")
+                        throw IllegalStateException("This server signs in with passkeys, which Hermex doesn't support yet.")
                     }
                     if (password.isBlank()) return@withAuthMutation AddServerResult.NeedsPassword
                     val login = client.login(password)
@@ -119,14 +127,18 @@ class AuthRepository(
                 ensureCurrentAuthGeneration(url, generation)
                 clearCacheAfterAuthentication(url, client)
                 ensureCurrentAuthGeneration(url, generation)
-                val account = registry.activate(
-                    url = url,
-                    displayName = displayName,
-                    initials = initials,
-                    headerLogoColorHex = headerLogoColorHex,
-                )
-                registry.saveCustomHeaders(account.id, customHeaders)
-                registry.setLoggedOut(account.id, false)
+                accountSelectionGeneration.incrementAndGet()
+                val account = withSecureStorage {
+                    registry.activate(
+                        url = url,
+                        displayName = displayName,
+                        initials = initials,
+                        headerLogoColorHex = headerLogoColorHex,
+                    ).also { activated ->
+                        registry.saveCustomHeaders(activated.id, customHeaders)
+                        registry.setLoggedOut(activated.id, false)
+                    }
+                }
                 _state.value = AuthState.LoggedIn(url, account)
                 AddServerResult.Added(account)
             } catch (error: Throwable) {
@@ -136,36 +148,42 @@ class AuthRepository(
         }
     }
 
-    fun activate(id: String) {
+    suspend fun activate(id: String) {
+        val selectionGeneration = accountSelectionGeneration.incrementAndGet()
         registry.snapshot.value.servers.firstOrNull { it.id == id }
             ?.urlString
             ?.let { runCatching { it.toHttpUrl() }.getOrNull() }
             ?.let(::advanceAuthGeneration)
-        registry.setActive(id)
-        _state.value = restoreState()
+        val restored = withSecureStorage {
+            if (accountSelectionGeneration.get() != selectionGeneration) return@withSecureStorage restoreState()
+            registry.setActive(id)
+            restoreState()
+        }
+        if (accountSelectionGeneration.get() == selectionGeneration) _state.value = restored
     }
 
     fun customHeaders(serverId: String): List<CustomHeader> =
         registry.customHeaders(serverId)
 
-    fun saveCustomHeaders(serverId: String, headers: List<CustomHeader>) {
-        registry.saveCustomHeaders(serverId, headers)
-    }
+    suspend fun saveCustomHeaders(serverId: String, headers: List<CustomHeader>) =
+        withSecureStorage { registry.saveCustomHeaders(serverId, headers) }
 
-    fun updateServerIdentity(
+    suspend fun updateServerIdentity(
         account: ServerAccount,
         displayName: String,
         initials: String,
         headerLogoColorHex: String,
     ): ServerAccount? {
-        val updated = registry.update(
-            account.copy(
-                displayName = displayName,
-                initials = initials,
-                headerLogoColorHex = headerLogoColorHex,
-            ),
-        ) ?: return null
-        _state.value = restoreState()
+        val updated = withSecureStorage {
+            registry.update(
+                account.copy(
+                    displayName = displayName,
+                    initials = initials,
+                    headerLogoColorHex = headerLogoColorHex,
+                ),
+            )
+        } ?: return null
+        _state.value = withSecureStorage(::restoreState)
         return updated
     }
 
@@ -199,11 +217,13 @@ class AuthRepository(
         val account = registry.snapshot.value.servers.firstOrNull { it.id == id }
         val url = account?.let { runCatching { it.urlString.toHttpUrl() }.getOrNull() }
         if (url == null) {
-            registry.remove(id)
-            _state.value = restoreState()
+            _state.value = withSecureStorage {
+                registry.remove(id)
+                restoreState()
+            }
             return
         }
-        withContext(NonCancellable) {
+        withContext(NonCancellable + Dispatchers.IO) {
             withAuthMutation(url) {
                 // Keep the configured account and its session intact if durable cache cleanup fails.
                 clearCachedServer(url.toString())
@@ -236,6 +256,16 @@ class AuthRepository(
         return false
     }
 
+    val restoredSessionValidationComplete: Boolean
+        get() = didValidateRestoredSession || _state.value !is AuthState.LoggedIn
+
+    suspend fun validateRestoredSessionOnce(): Boolean = restoredSessionValidationMutex.withLock {
+        if (didValidateRestoredSession) return@withLock _state.value is AuthState.LoggedIn
+        val valid = validateRestoredSession()
+        didValidateRestoredSession = true
+        valid
+    }
+
     fun currentAuthGeneration(server: okhttp3.HttpUrl): Long = authGeneration(server).get()
 
     suspend fun handleUnauthorized(server: okhttp3.HttpUrl, requestGeneration: Long) {
@@ -256,10 +286,12 @@ class AuthRepository(
 
     private suspend fun markLoggedOut(server: okhttp3.HttpUrl) {
         val serverId = ServerRegistry.normalizedId(server)
-        registry.setLoggedOut(serverId, true)
-        cookieJar.clear(server)
+        val active = withSecureStorage {
+            registry.setLoggedOut(serverId, true)
+            cookieJar.clear(server)
+            registry.activeServer()
+        }
         runCatching { clearCachedServer(server.toString()) }
-        val active = registry.activeServer()
         if (active?.id == serverId) {
             _state.value = AuthState.LoggedOut(server)
         }
@@ -269,7 +301,7 @@ class AuthRepository(
         try {
             clearCachedServer(url.toString())
         } catch (error: Throwable) {
-            withContext(NonCancellable) {
+            withContext(NonCancellable + Dispatchers.IO) {
                 try {
                     client.logout()
                 } catch (_: Throwable) {
@@ -287,12 +319,15 @@ class AuthRepository(
         }
     }
 
-    private fun discardSupersededCookies(server: okhttp3.HttpUrl, expectedGeneration: Long) {
-        if (currentAuthGeneration(server) != expectedGeneration) cookieJar.clear(server)
+    private suspend fun discardSupersededCookies(server: okhttp3.HttpUrl, expectedGeneration: Long) {
+        if (currentAuthGeneration(server) != expectedGeneration) withSecureStorage { cookieJar.clear(server) }
     }
 
     private suspend fun <T> withAuthMutation(server: okhttp3.HttpUrl, block: suspend () -> T): T =
         authMutationLock(server).withLock { block() }
+
+    private suspend fun <T> withSecureStorage(block: () -> T): T =
+        withContext(Dispatchers.IO) { block() }
 
     private fun authMutationLock(server: okhttp3.HttpUrl): Mutex =
         authMutationLocks.getOrPut(ServerRegistry.normalizedId(server)) { Mutex() }

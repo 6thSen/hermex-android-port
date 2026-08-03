@@ -1,7 +1,13 @@
 package com.uzairansar.hermex.ui.localization
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+
+internal fun Context.localizedString(englishText: String): String {
+    val resourceId = AndroidLocalizationCatalog.resourceId(englishText) ?: return englishText
+    return getString(resourceId)
+}
 
 @Composable
 internal fun localizedString(englishText: String): String {

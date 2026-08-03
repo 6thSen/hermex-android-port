@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">新しいセッションを開始</string>
     <string name="shortcut_new_voice_short">音声入力</string>
     <string name="shortcut_new_voice_long">音声入力</string>
-    <string name="shortcut_panels_short">タスク</string>
-    <string name="shortcut_panels_long">メモリ</string>
-    <string name="shortcut_settings_short">設定</string>
-    <string name="shortcut_settings_long">設定</string>
     <string name="widget_description">新規チャット</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">セッション</string>

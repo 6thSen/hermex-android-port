@@ -4,6 +4,7 @@ import com.uzairansar.hermex.data.secure.SecretStore
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -39,6 +40,36 @@ class PersistentCookieJarTest {
         } finally {
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun domainCookieIsSharedAcrossSubdomains() {
+        val jar = PersistentCookieJar(ConcurrentSecretStore())
+        val authUrl = "https://auth.example.test/".toHttpUrl()
+        val appUrl = "https://hermes.example.test/".toHttpUrl()
+        jar.saveFromResponse(
+            authUrl,
+            listOf(Cookie.Builder().name("session").value("token").domain("example.test").path("/").build()),
+        )
+
+        val cookies = jar.loadForRequest(appUrl)
+
+        assertEquals(1, cookies.size)
+        assertEquals("session", cookies.single().name)
+    }
+
+    @Test
+    fun clearingServerRemovesItsDomainCookies() {
+        val jar = PersistentCookieJar(ConcurrentSecretStore())
+        val url = "https://hermes.example.test/".toHttpUrl()
+        jar.saveFromResponse(
+            url,
+            listOf(Cookie.Builder().name("session").value("token").domain("example.test").path("/").build()),
+        )
+
+        jar.clear(url)
+
+        assertTrue(jar.loadForRequest(url).isEmpty())
     }
 }
 

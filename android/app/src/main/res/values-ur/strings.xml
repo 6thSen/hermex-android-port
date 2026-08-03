@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">نیا سیشن شروع کریں</string>
     <string name="shortcut_new_voice_short">صوتی ان پٹ</string>
     <string name="shortcut_new_voice_long">صوتی ان پٹ</string>
-    <string name="shortcut_panels_short">ٹاسکس</string>
-    <string name="shortcut_panels_long">میموری</string>
-    <string name="shortcut_settings_short">ترتیبات</string>
-    <string name="shortcut_settings_long">ترتیبات</string>
     <string name="widget_description">نئی چیٹ</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">سیشنز</string>

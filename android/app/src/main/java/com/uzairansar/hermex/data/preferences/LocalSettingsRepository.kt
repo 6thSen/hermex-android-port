@@ -1,8 +1,10 @@
 package com.uzairansar.hermex.data.preferences
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.uzairansar.hermex.core.model.ModelSummary
@@ -14,7 +16,10 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.Locale
 
-private val Context.localSettingsDataStore by preferencesDataStore(name = "hermex_local_settings")
+private val Context.localSettingsDataStore by preferencesDataStore(
+    name = "hermex_local_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 fun defaultRtlChatLayoutEnabled(locale: Locale = Locale.getDefault()): Boolean =
     locale.language.lowercase(Locale.US) in setOf("ar", "fa", "he", "iw", "ps", "sd", "ug", "ur", "yi")
@@ -153,6 +158,22 @@ class LocalSettingsRepository(context: Context) {
     suspend fun setHeaderLogoColorHex(colorHex: String) {
         dataStore.edit { preferences ->
             preferences[HEADER_LOGO_COLOR_HEX] = colorHex
+        }
+    }
+
+    suspend fun setSessionIdentity(
+        displayName: String,
+        initials: String,
+        headerLogoColorHex: String,
+    ) {
+        val normalizedInitials = initials
+            .filter { it.isLetterOrDigit() }
+            .take(3)
+            .uppercase(Locale.US)
+        dataStore.edit { preferences ->
+            preferences[SESSION_IDENTITY_DISPLAY_NAME] = displayName.take(80)
+            preferences[SESSION_IDENTITY_INITIALS] = normalizedInitials
+            preferences[HEADER_LOGO_COLOR_HEX] = headerLogoColorHex
         }
     }
 

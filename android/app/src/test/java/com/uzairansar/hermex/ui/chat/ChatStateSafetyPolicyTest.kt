@@ -1,5 +1,6 @@
 package com.uzairansar.hermex.ui.chat
 
+import com.uzairansar.hermex.core.model.BackgroundResult
 import com.uzairansar.hermex.core.model.UploadResponse
 import com.uzairansar.hermex.core.network.HermesJson
 import java.io.ByteArrayInputStream
@@ -57,6 +58,7 @@ class ChatStateSafetyPolicyTest {
         val state = PersistedChatPendingState(
             draft = "unsent draft",
             pendingAttachments = listOf(UploadResponse(filename = "notes.txt", path = "/uploads/notes.txt")),
+            pendingLocalUploads = listOf(PendingLocalAttachmentUpload("upload-1", "/cache/photo.jpg", "image/jpeg")),
             queuedDrafts = listOf(QueuedDraft("queued", emptyList())),
             backgroundTasks = mapOf("task-1" to BackgroundTaskState("background", 123L)),
             btwTask = BtwTaskState("stream-1", "message-1", "question", "partial"),
@@ -67,6 +69,21 @@ class ChatStateSafetyPolicyTest {
         )
 
         assertEquals(state, decoded)
+    }
+
+    @Test
+    fun backgroundPollingOnlyConsumesResultsForTasksStartedByThisChat() {
+        val tasks = mapOf(
+            "task-1" to BackgroundTaskState("review the cache"),
+            "task-2" to BackgroundTaskState("run the tests"),
+        )
+
+        assertEquals("task-1", matchingBackgroundTaskId(tasks, BackgroundResult(taskId = "task-1")))
+        assertEquals(
+            "task-2",
+            matchingBackgroundTaskId(tasks, BackgroundResult(prompt = " run the tests ")),
+        )
+        assertEquals(null, matchingBackgroundTaskId(tasks, BackgroundResult(taskId = "old-task", prompt = "historical")))
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.uzairansar.hermex.core.model.SessionDetail
 import com.uzairansar.hermex.core.model.ProfileSummary
 import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.core.network.HermesApiClient
+import com.uzairansar.hermex.core.network.ApiError
 import com.uzairansar.hermex.core.network.SseStreamClient
 import com.uzairansar.hermex.data.db.CacheDao
 import com.uzairansar.hermex.data.db.CachedMessageEntity
@@ -23,6 +24,191 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class RepositoryCacheSafetyTest {
+    @Test
+    fun olderMessagePageRequiresASessionAndMessagesBeforeUpdatingCache() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val dao = RecordingCacheDao()
+            val repository = ChatRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = dao,
+                cacheOwnership = ServerCacheOwnership(),
+                sse = SseStreamClient(server.url("/"), OkHttpClient()) { emptyList() },
+            )
+            server.enqueue(json("""{"session":{}}"""))
+
+            val error = runCatching {
+                repository.loadOlderSessionSnapshot("session-1", before = 10, currentMessages = emptyList())
+            }.exceptionOrNull()
+
+            assertTrue(error is ApiError.InvalidResponse)
+            assertTrue(dao.replacedMessageBatches.isEmpty())
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun sessionConfigurationRequiresServerConfirmation() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val repository = ChatRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = RecordingCacheDao(),
+                cacheOwnership = ServerCacheOwnership(),
+                sse = SseStreamClient(server.url("/"), OkHttpClient()) { emptyList() },
+            )
+            server.enqueue(json("{}"))
+
+            val error = runCatching {
+                repository.updateSessionConfiguration("session-1", workspace = "/workspace", model = null)
+            }.exceptionOrNull()
+
+            assertTrue(error is ApiError.InvalidResponse)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun chatCacheFallbackPreservesSessionMetadata() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val dao = RecordingCacheDao()
+            val serverUrl = server.url("/").toString()
+            dao.cachedSessionResult = listOf(
+                requireNotNull(
+                    CachedSessionEntity.from(
+                        serverUrl,
+                        SessionSummary(
+                            sessionId = "session-1",
+                            title = "Cached title",
+                            workspace = "/cached/workspace",
+                            model = "gpt-5",
+                            modelProvider = "openai",
+                            profile = "work",
+                        ),
+                    ),
+                ),
+            )
+            dao.cachedMessageResult = listOf(
+                CachedMessageEntity.from(
+                    serverUrl,
+                    "session-1",
+                    com.uzairansar.hermex.core.model.ChatMessage(role = "assistant", content = "cached"),
+                    index = 0,
+                ),
+            )
+            val repository = ChatRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = dao,
+                cacheOwnership = ServerCacheOwnership(),
+                sse = SseStreamClient(server.url("/"), OkHttpClient()) { emptyList() },
+            )
+            server.enqueue(MockResponse.Builder().code(503).body("unavailable").build())
+
+            val result = repository.loadSessionSnapshot("session-1") as ResultState.Data
+
+            assertTrue(result.fromCache)
+            assertEquals("Cached title", result.value.title)
+            assertEquals("/cached/workspace", result.value.workspace)
+            assertEquals("gpt-5", result.value.model)
+            assertEquals("openai", result.value.modelProvider)
+            assertEquals("work", result.value.profile)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun clearingConversationInvalidatesAnOlderSessionLoadBeforeItCanRestoreMessages() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val dao = RecordingCacheDao()
+            val repository = ChatRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = dao,
+                cacheOwnership = ServerCacheOwnership(),
+                sse = SseStreamClient(server.url("/"), OkHttpClient()) { emptyList() },
+            )
+            server.enqueue(
+                json("""{"session":{"session_id":"session-1","messages":[{"role":"assistant","content":"old"}]}}""")
+                    .newBuilder()
+                    .bodyDelay(1, TimeUnit.SECONDS)
+                    .build(),
+            )
+            server.enqueue(json("""{"ok":true,"session":{"session_id":"session-1","messages":[]}}"""))
+
+            val load = async(Dispatchers.IO) { repository.loadSessionSnapshot("session-1") }
+            assertNotNull(withTimeout(5_000) { server.takeRequest(5, TimeUnit.SECONDS) })
+            repository.clearSessionSnapshot("session-1")
+            load.await()
+
+            assertEquals(1, dao.replacedMessageBatches.size)
+            assertTrue(dao.replacedMessageBatches.single().isEmpty())
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun deletingSessionInvalidatesAnOlderSessionListLoad() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val dao = RecordingCacheDao()
+            val repository = SessionRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = dao,
+                cacheOwnership = ServerCacheOwnership(),
+            )
+            server.enqueue(
+                json("""{"sessions":[{"session_id":"session-1"}]}""")
+                    .newBuilder()
+                    .bodyDelay(1, TimeUnit.SECONDS)
+                    .build(),
+            )
+            server.enqueue(json("""{"ok":true}"""))
+
+            val load = async(Dispatchers.IO) { repository.loadSessions() }
+            assertNotNull(withTimeout(5_000) { server.takeRequest(5, TimeUnit.SECONDS) })
+            repository.delete("session-1")
+            load.await()
+
+            assertEquals(0, dao.replacedSessionBatches.size)
+            assertEquals(listOf("session-1"), dao.purgedSessionIds)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun malformedTruncateResponseDoesNotReplaceTheCachedTranscript() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val dao = RecordingCacheDao()
+            val repository = ChatRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = dao,
+                cacheOwnership = ServerCacheOwnership(),
+                sse = SseStreamClient(server.url("/"), OkHttpClient()) { emptyList() },
+            )
+            server.enqueue(json("""{"ok":true}"""))
+
+            val error = runCatching { repository.truncateSessionSnapshot("session-1", 2) }.exceptionOrNull()
+
+            assertTrue(error is ApiError.InvalidResponse)
+            assertEquals(0, dao.replacedMessageBatches.size)
+        } finally {
+            server.close()
+        }
+    }
+
     @Test
     fun completedEmptySessionReplacesCachedMessagesAndNewOperationUsesCurrentGeneration() = runBlocking {
         val server = MockWebServer()
@@ -76,6 +262,38 @@ class RepositoryCacheSafetyTest {
             load.await()
 
             assertEquals(0, dao.replacedSessionBatches.size)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun manualCacheClearBlocksDelayedSessionListResponseFromRepopulatingCache() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            val dao = RecordingCacheDao()
+            val ownership = ServerCacheOwnership()
+            val repository = SessionRepository(
+                client = HermesApiClient(server.url("/"), OkHttpClient()),
+                cacheDao = dao,
+                cacheOwnership = ownership,
+            )
+            val maintenance = CacheMaintenanceRepository(dao, ownership)
+            server.enqueue(
+                json("""{"sessions":[{"session_id":"stale"}]}""")
+                    .newBuilder()
+                    .bodyDelay(1, TimeUnit.SECONDS)
+                    .build(),
+            )
+
+            val load = async(Dispatchers.IO) { repository.loadSessions() }
+            assertNotNull(withTimeout(5_000) { server.takeRequest(5, TimeUnit.SECONDS) })
+            maintenance.clearServer(server.url("/").toString())
+            load.await()
+
+            assertEquals(0, dao.replacedSessionBatches.size)
+            assertEquals(1, dao.clearServerCount)
         } finally {
             server.close()
         }
@@ -221,9 +439,12 @@ private class RecordingCacheDao : CacheDao {
     val replacedMessageBatches = mutableListOf<List<CachedMessageEntity>>()
     val authoritativeSessionSyncs = mutableListOf<Boolean>()
     var cachedSessionResult: List<CachedSessionEntity> = emptyList()
+    var cachedMessageResult: List<CachedMessageEntity> = emptyList()
+    val purgedSessionIds = mutableListOf<String>()
+    var clearServerCount = 0
 
     override suspend fun cachedSessions(serverUrl: String, now: Long): List<CachedSessionEntity> = cachedSessionResult
-    override suspend fun cachedMessages(serverUrl: String, sessionId: String, now: Long): List<CachedMessageEntity> = emptyList()
+    override suspend fun cachedMessages(serverUrl: String, sessionId: String, now: Long): List<CachedMessageEntity> = cachedMessageResult
     override suspend fun upsertSessions(sessions: List<CachedSessionEntity>) { replacedSessionBatches += sessions }
     override suspend fun upsertMessages(messages: List<CachedMessageEntity>) { replacedMessageBatches += messages }
     override suspend fun sessionKeys(serverUrl: String): List<String> = emptyList()
@@ -234,14 +455,20 @@ private class RecordingCacheDao : CacheDao {
     override suspend fun deleteMessagesBySessionIds(serverUrl: String, sessionIds: List<String>) = Unit
     override suspend fun clearSessions(serverUrl: String) = Unit
     override suspend fun clearMessages(serverUrl: String) = Unit
+    override suspend fun clearServer(serverUrl: String) {
+        clearServerCount += 1
+    }
     override suspend fun deleteExpiredSessions(now: Long) = Unit
     override suspend fun deleteExpiredMessages(now: Long) = Unit
-    override suspend fun oldMessageKeysBeyond(keep: Int): List<String> = emptyList()
+    override suspend fun messageServerUrls(): List<String> = emptyList()
+    override suspend fun oldMessageKeysBeyond(serverUrl: String, keep: Int): List<String> = emptyList()
     override suspend fun updateSessionTitle(serverUrl: String, sessionId: String, title: String) = Unit
     override suspend fun updateSessionPinned(serverUrl: String, sessionId: String, pinned: Boolean) = Unit
     override suspend fun updateSessionArchived(serverUrl: String, sessionId: String, archived: Boolean) = Unit
     override suspend fun updateSessionProject(serverUrl: String, sessionId: String, projectId: String?) = Unit
-    override suspend fun deleteCachedSession(serverUrl: String, sessionId: String) = Unit
+    override suspend fun deleteCachedSession(serverUrl: String, sessionId: String) {
+        purgedSessionIds += sessionId
+    }
     override suspend fun deleteCachedSessionMessages(serverUrl: String, sessionId: String) = Unit
 
     override suspend fun replaceSessions(serverUrl: String, sessions: List<CachedSessionEntity>, now: Long, authoritative: Boolean) {

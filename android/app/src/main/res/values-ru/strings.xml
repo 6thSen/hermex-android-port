@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">Начать новую сессию</string>
     <string name="shortcut_new_voice_short">Голосовой ввод</string>
     <string name="shortcut_new_voice_long">Голосовой ввод</string>
-    <string name="shortcut_panels_short">Задачи</string>
-    <string name="shortcut_panels_long">Память</string>
-    <string name="shortcut_settings_short">Настройки</string>
-    <string name="shortcut_settings_long">Настройки</string>
     <string name="widget_description">Новый чат</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">Сессии</string>

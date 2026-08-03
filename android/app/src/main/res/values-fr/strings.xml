@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">Démarrer une nouvelle session</string>
     <string name="shortcut_new_voice_short">Saisie vocale</string>
     <string name="shortcut_new_voice_long">Saisie vocale</string>
-    <string name="shortcut_panels_short">Tâches</string>
-    <string name="shortcut_panels_long">Mémoire</string>
-    <string name="shortcut_settings_short">Réglages</string>
-    <string name="shortcut_settings_long">Réglages</string>
     <string name="widget_description">Nouvelle discussion</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">Sessions</string>

@@ -5,6 +5,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class EndpointTest {
+    @Test
+    fun preservesConfiguredServerSubpaths() {
+        val url = Endpoint.ChatStream("stream-1").url("https://example.com/hermes/".toHttpUrl())
+
+        assertEquals("/hermes/api/chat/stream", url.encodedPath)
+        assertEquals("stream-1", url.queryParameter("stream_id"))
+    }
+
     private val base = "https://hermes.example.com/".toHttpUrl()
 
     @Test

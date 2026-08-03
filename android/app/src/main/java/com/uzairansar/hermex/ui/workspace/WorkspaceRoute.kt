@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +58,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
@@ -89,28 +92,37 @@ fun WorkspaceRoute(
             @Suppress("UNCHECKED_CAST")
             return WorkspaceViewModel(sessionId, repository) as T
         }
+
+        override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+            @Suppress("UNCHECKED_CAST")
+            return WorkspaceViewModel(sessionId, repository, extras.createSavedStateHandle()) as T
+        }
     })
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val shareScope = rememberCoroutineScope()
-    var pendingSavePayload by remember { mutableStateOf<WorkspaceSavePayload?>(null) }
+    var pendingSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     val saveFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { destination ->
-        val payload = pendingSavePayload
-        pendingSavePayload = null
-        if (destination != null && payload != null) {
+        val pendingFile = pendingSavePath?.let(::File)
+        pendingSavePath = null
+        if (destination != null && pendingFile?.isFile == true) {
             shareScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openOutputStream(destination)?.use { output -> output.write(payload.bytes) }
-                            ?: error("Could not open the selected destination.")
+                        context.contentResolver.openOutputStream(destination)?.use { output ->
+                            pendingFile.inputStream().use { input -> input.copyTo(output) }
+                        } ?: error("Could not open the selected destination.")
                     }
                 }
+                runCatching { pendingFile.delete() }
                 Toast.makeText(
                     context,
                     result.fold(onSuccess = { "File saved." }, onFailure = { it.message ?: "Could not save file." }),
                     Toast.LENGTH_LONG,
                 ).show()
             }
+        } else {
+            pendingFile?.let { runCatching { it.delete() } }
         }
     }
     val savePreviewAs: (String?, String?, BinaryPreview?) -> Unit = { title, content, binaryPreview ->
@@ -120,8 +132,20 @@ fun WorkspaceRoute(
         } else {
             val sourcePath = title ?: binaryPreview?.path
             val fileName = WorkspaceFilePreviewPolicy.displayName(sourcePath)
-            pendingSavePayload = WorkspaceSavePayload(bytes)
-            saveFileLauncher.launch(fileName)
+            shareScope.launch {
+                val previousPendingPath = pendingSavePath
+                val pendingFile = withContext(Dispatchers.IO) {
+                    runCatching {
+                        previousPendingPath?.let(::File)?.takeIf { it.isFile }?.delete()
+                        File.createTempFile("workspace-save-", ".tmp", context.cacheDir).also { it.writeBytes(bytes) }
+                    }
+                }.getOrElse { error ->
+                    viewModel.reportError(error.message ?: "Could not prepare the file for saving.")
+                    return@launch
+                }
+                pendingSavePath = pendingFile.absolutePath
+                saveFileLauncher.launch(fileName)
+            }
         }
     }
 
@@ -432,9 +456,9 @@ private fun EmptyWorkspace(query: String, currentPath: String?) {
             colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.secondary),
         )
         Spacer(Modifier.height(18.dp))
-        Text(if (query.isBlank()) "No Files" else "No Matches", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(localizedString(if (query.isBlank()) "No Files" else "No Matches"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
-            if (query.isBlank()) "" else "Try a different file name or path.",
+            if (query.isBlank()) "" else localizedString("Try a different file name or path."),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary,
         )
@@ -561,7 +585,7 @@ private fun FilePreview(
                     FilePreviewHeader(displayPath, metadata)
                     Image(
                         bitmap = decodedBitmap.asImageBitmap(),
-                        contentDescription = title ?: "Image preview",
+                        contentDescription = title ?: localizedString("Image"),
                         modifier = Modifier.fillMaxWidth(),
                         contentScale = ContentScale.Fit,
                     )
@@ -670,10 +694,6 @@ internal fun fileSizeText(bytes: Long): String =
         bytes < 1_000_000_000 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_000_000.0)
         else -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_000_000_000.0)
     }
-
-private data class WorkspaceSavePayload(
-    val bytes: ByteArray,
-)
 
 private fun saveWorkspaceImageToGallery(
     context: Context,

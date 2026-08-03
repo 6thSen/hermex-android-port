@@ -16,11 +16,15 @@ import com.uzairansar.hermex.data.repository.SessionRepository
 import com.uzairansar.hermex.data.repository.WorkspaceRepository
 import com.uzairansar.hermex.data.secure.AndroidSecretStore
 import com.uzairansar.hermex.data.secure.ServerRegistry
+import com.uzairansar.hermex.data.secure.UnavailableSecretStore
 import com.uzairansar.hermex.data.share.SharedDraftStore
+import com.uzairansar.hermex.ui.chat.StreamRecoveryService
+import com.uzairansar.hermex.ui.createExportDirectory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -34,12 +38,25 @@ class HermexApplication : Application() {
         AppVisibilityTracker.register(this)
         container = AppContainer(this)
     }
+
+    suspend fun resetSecureStorage(): Result<Unit> {
+        val replacement = withContext(Dispatchers.IO) {
+            runCatching {
+                AndroidSecretStore.reset(this@HermexApplication)
+                AppContainer(this@HermexApplication)
+            }
+        }
+        replacement.onSuccess { container = it }
+        return replacement.map { }
+    }
 }
 
-class AppContainer(application: Application) {
+class AppContainer(private val application: Application) {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val secretStore = AndroidSecretStore(application)
+    private val secretStoreResult = runCatching { AndroidSecretStore(application) }
+    private val secretStore = secretStoreResult.getOrElse(::UnavailableSecretStore)
     val registry = ServerRegistry(secretStore)
+    val secureStorageFailure: Throwable? = secretStoreResult.exceptionOrNull() ?: registry.loadFailure
     val localSettingsRepository = LocalSettingsRepository(application)
     val sharedDraftStore = SharedDraftStore(application)
     private val cookieJar = PersistentCookieJar(secretStore)
@@ -51,7 +68,7 @@ class AppContainer(application: Application) {
         .build()
     private val database = HermexDatabase.create(application)
     private val cacheOwnership = ServerCacheOwnership()
-    val cacheMaintenanceRepository = CacheMaintenanceRepository(database.cacheDao())
+    val cacheMaintenanceRepository = CacheMaintenanceRepository(database.cacheDao(), cacheOwnership)
 
     val authRepository = AuthRepository(
         registry = registry,
@@ -65,6 +82,7 @@ class AppContainer(application: Application) {
         },
         cookieJar = cookieJar,
         clearCachedServer = { serverUrl ->
+            StreamRecoveryService.clearServer(application, serverUrl)
             cacheOwnership.invalidateAndClear(serverUrl) { database.cacheDao().clearServer(serverUrl) }
         },
     )
@@ -89,17 +107,30 @@ class AppContainer(application: Application) {
     }
 
     fun sessionRepository(baseUrl: HttpUrl): SessionRepository =
-        SessionRepository(apiClient(baseUrl), database.cacheDao(), cacheOwnership)
+        SessionRepository(
+            apiClient(baseUrl),
+            database.cacheDao(),
+            cacheOwnership,
+            exportDirectoryProvider = { application.createExportDirectory("session") },
+        )
 
     fun chatRepository(baseUrl: HttpUrl): ChatRepository {
         val client = apiClient(baseUrl)
+        val authGeneration = authRepository.currentAuthGeneration(baseUrl)
         return ChatRepository(
             client = client,
             cacheDao = database.cacheDao(),
             cacheOwnership = cacheOwnership,
-            sse = SseStreamClient(baseUrl, okHttpClient) {
-                registry.customHeaders(ServerRegistry.normalizedId(baseUrl))
-            },
+            sse = SseStreamClient(
+                baseUrl = baseUrl,
+                client = okHttpClient,
+                onUnauthorized = { server ->
+                    applicationScope.launch { authRepository.handleUnauthorized(server, authGeneration) }
+                },
+                customHeaders = {
+                    registry.customHeaders(ServerRegistry.normalizedId(baseUrl))
+                },
+            ),
         )
     }
 

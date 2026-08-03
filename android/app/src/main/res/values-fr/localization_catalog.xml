@@ -1064,6 +1064,7 @@
     <string name="l10n_7bab0e5ded8bc6f0" formatted="false">"Saisissez un identifiant de modèle exactement tel que le serveur l'attend."</string>
     <string name="l10n_1d4d43cc6f3a833e" formatted="false">"Terminé"</string>
     <string name="l10n_9d051101e772ba11" formatted="false">"L’arbre de travail est propre."</string>
+    <string name="l10n_c3447e7954fa5698" formatted="false">"Retour à la ligne dans les blocs de code"</string>
     <string name="l10n_650c8b9689349c6f" formatted="false">"Android et raccourcis"</string>
     <string name="l10n_4995a18a7feb07d3" formatted="false">"Notifications Android autorisées."</string>
     <string name="l10n_6ffbb15ebde8242f" formatted="false">"Notifications Android désactivées."</string>
@@ -1075,12 +1076,16 @@
     <string name="l10n_e926bfb2bfdf0fb3" formatted="false">"%lld sessions archivées"</string>
     <string name="l10n_a91bcce893b5de90" formatted="false">"Toujours"</string>
     <string name="l10n_b52b36b7269fbfc5" formatted="false">"Retour"</string>
+    <string name="l10n_9d0de6c0ee2fc2e7" formatted="false">"La r?cup?ration du flux en arri?re-plan n?a pas pu d?marrer."</string>
     <string name="l10n_2df57c166c21b929" formatted="false">"Valider la sélection"</string>
     <string name="l10n_8fdb5e04fadec4fa" formatted="false">"Fenêtre de contexte"</string>
+    <string name="l10n_c2b5cadf49d51715" formatted="false">"Impossible d?analyser les en-t?tes personnalis?s."</string>
+    <string name="l10n_98de890b6fcd67b1" formatted="false">"Impossible de r?initialiser le stockage s?curis?."</string>
     <string name="l10n_53577bb5df0ee9b6" formatted="false">"Refuser"</string>
     <string name="l10n_dc3decbb93847518" formatted="false">"Détails"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"Ignorer"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"Modifications de fichiers"</string>
+    <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex n?a pas pu ouvrir les donn?es chiffr?es du compte. La r?initialisation supprimera de cet appareil les serveurs enregistr?s, les cookies de connexion et les en-t?tes personnalis?s."</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"Charger l’image distante"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"Nom : valeur"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"Ouvrir"</string>
@@ -1088,12 +1093,15 @@
     <string name="l10n_bfa710ae1583142c" formatted="false">"Demandes en attente : %lld"</string>
     <string name="l10n_d325fcd919384f39" formatted="false">"Mettre en file"</string>
     <string name="l10n_409a421432653b85" formatted="false">"Enregistrement de la note vocale"</string>
+    <string name="l10n_fdc37d196084ba7a" formatted="false">"R?initialiser les donn?es s?curis?es"</string>
     <string name="l10n_6e617e4fc9da3de9" formatted="false">"Réponse"</string>
     <string name="l10n_29251fb4a89acc46" formatted="false">"Enregistrement de la mémoire..."</string>
+    <string name="l10n_5c36abc75309eaa9" formatted="false">"Le stockage s?curis? doit ?tre r?par?"</string>
     <string name="l10n_1dfa53963abca0f4" formatted="false">"Envoi de la note vocale..."</string>
     <string name="l10n_ed2a7acac11f4394" formatted="false">"Les URL de serveur, les en-têtes personnalisés et les cookies sont stockés dans le stockage chiffré d’Android."</string>
     <string name="l10n_09ca55ca52d207f2" formatted="false">"Partager"</string>
     <string name="l10n_12f98a70d6319400" formatted="false">"Afficher les extraits de réponse"</string>
+    <string name="l10n_7cdb45a0a913f5a9" formatted="false">"?chec de la connexion."</string>
     <string name="l10n_ca6d0e3aaa7d6cc0" formatted="false">"Indexer"</string>
     <string name="l10n_3e44c920427e845d" formatted="false">"Changer"</string>
     <string name="l10n_7298d7ed988425fb" formatted="false">"Désindexer"</string>

@@ -45,7 +45,8 @@ private class SyncRecordingCacheDao(
     override suspend fun clearMessages(serverUrl: String) = Unit
     override suspend fun deleteExpiredSessions(now: Long) = Unit
     override suspend fun deleteExpiredMessages(now: Long) = Unit
-    override suspend fun oldMessageKeysBeyond(keep: Int) = emptyList<String>()
+    override suspend fun messageServerUrls() = emptyList<String>()
+    override suspend fun oldMessageKeysBeyond(serverUrl: String, keep: Int) = emptyList<String>()
     override suspend fun updateSessionTitle(serverUrl: String, sessionId: String, title: String) = Unit
     override suspend fun updateSessionPinned(serverUrl: String, sessionId: String, pinned: Boolean) = Unit
     override suspend fun updateSessionArchived(serverUrl: String, sessionId: String, archived: Boolean) = Unit

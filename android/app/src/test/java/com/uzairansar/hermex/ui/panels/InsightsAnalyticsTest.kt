@@ -36,10 +36,10 @@ class InsightsAnalyticsTest {
         val analytics = sessions.analyticsFor(AnalyticsTimeframe.Last7Days, nowMillis = now, zoneId = zone)
 
         assertEquals(1, analytics.sessionCount)
-        assertEquals(4, analytics.totalMessages)
-        assertEquals(100, analytics.totalInputTokens)
-        assertEquals(200, analytics.totalOutputTokens)
-        assertEquals(300, analytics.totalTokens)
+        assertEquals(4L, analytics.totalMessages)
+        assertEquals(100L, analytics.totalInputTokens)
+        assertEquals(200L, analytics.totalOutputTokens)
+        assertEquals(300L, analytics.totalTokens)
         assertEquals(0.25, analytics.estimatedCost, 0.0)
         assertEquals("Recent Heavy", analytics.topSessions.single().title)
     }
@@ -55,6 +55,17 @@ class InsightsAnalyticsTest {
         assertTrue(AnalyticsTimeframe.Last7Days.contains(lastWeek, nowMillis = now, zoneId = zone))
         assertFalse(AnalyticsTimeframe.Last30Days.contains(older, nowMillis = now, zoneId = zone))
         assertTrue(AnalyticsTimeframe.AllTime.contains(older, nowMillis = now, zoneId = zone))
+    }
+
+    @Test
+    fun tokenAggregationDoesNotOverflowIntRange() {
+        val analytics = listOf(
+            SessionSummary(inputTokens = Int.MAX_VALUE, outputTokens = Int.MAX_VALUE),
+            SessionSummary(inputTokens = Int.MAX_VALUE, outputTokens = Int.MAX_VALUE),
+        ).analyticsFor(AnalyticsTimeframe.AllTime, nowMillis = now, zoneId = zone)
+
+        assertEquals(Int.MAX_VALUE.toLong() * 2L, analytics.totalInputTokens)
+        assertEquals(Int.MAX_VALUE.toLong() * 4L, analytics.totalTokens)
     }
 }
 

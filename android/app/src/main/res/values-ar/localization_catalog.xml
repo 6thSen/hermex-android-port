@@ -1064,6 +1064,7 @@
     <string name="l10n_7bab0e5ded8bc6f0" formatted="false">"اكتب معرّف النموذج تمامًا كما يتوقعه الخادم."</string>
     <string name="l10n_1d4d43cc6f3a833e" formatted="false">"تم"</string>
     <string name="l10n_9d051101e772ba11" formatted="false">"شجرة العمل نظيفة."</string>
+    <string name="l10n_c3447e7954fa5698" formatted="false">"التفاف أسطر كتلة التعليمات البرمجية"</string>
     <string name="l10n_650c8b9689349c6f" formatted="false">"Android والاختصارات"</string>
     <string name="l10n_4995a18a7feb07d3" formatted="false">"إشعارات Android مسموح بها."</string>
     <string name="l10n_6ffbb15ebde8242f" formatted="false">"إشعارات Android مُعطَّلة."</string>
@@ -1075,12 +1076,16 @@
     <string name="l10n_e926bfb2bfdf0fb3" formatted="false">"%lld جلسات مؤرشفة"</string>
     <string name="l10n_a91bcce893b5de90" formatted="false">"دائمًا"</string>
     <string name="l10n_b52b36b7269fbfc5" formatted="false">"رجوع"</string>
+    <string name="l10n_9d0de6c0ee2fc2e7" formatted="false">"???? ??? ??????? ???? ?? ???????."</string>
     <string name="l10n_2df57c166c21b929" formatted="false">"تثبيت المحدد"</string>
     <string name="l10n_8fdb5e04fadec4fa" formatted="false">"نافذة السياق"</string>
+    <string name="l10n_c2b5cadf49d51715" formatted="false">"????? ????? ?????? ???????."</string>
+    <string name="l10n_98de890b6fcd67b1" formatted="false">"????? ????? ??? ??????? ?????."</string>
     <string name="l10n_53577bb5df0ee9b6" formatted="false">"رفض"</string>
     <string name="l10n_dc3decbb93847518" formatted="false">"التفاصيل"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"تجاهل"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"تغييرات الملفات"</string>
+    <string name="l10n_1ce5eec83a4626a6" formatted="false">"???? ??? Hermex ??? ?????? ?????? ???????. ????? ????? ????? ??? ????? ??????? ???????? ?????? ????? ?????? ????? ?????? ??????? ??????? ?? ??? ??????."</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"تحميل الصورة البعيدة"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"الاسم: القيمة"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"فتح"</string>
@@ -1088,12 +1093,15 @@
     <string name="l10n_bfa710ae1583142c" formatted="false">"المطالبات المعلقة: %lld"</string>
     <string name="l10n_d325fcd919384f39" formatted="false">"إضافة إلى الطابور"</string>
     <string name="l10n_409a421432653b85" formatted="false">"جارٍ تسجيل ملاحظة صوتية"</string>
+    <string name="l10n_fdc37d196084ba7a" formatted="false">"????? ??? ???????? ??????"</string>
     <string name="l10n_6e617e4fc9da3de9" formatted="false">"الاستجابة"</string>
     <string name="l10n_29251fb4a89acc46" formatted="false">"جارٍ حفظ الذاكرة..."</string>
+    <string name="l10n_5c36abc75309eaa9" formatted="false">"????? ??????? ????? ??? ?????"</string>
     <string name="l10n_1dfa53963abca0f4" formatted="false">"جارٍ إرسال الملاحظة الصوتية..."</string>
     <string name="l10n_ed2a7acac11f4394" formatted="false">"يتم تخزين عناوين URL للخوادم والرؤوس المخصصة وملفات تعريف الارتباط في التخزين المشفر على Android."</string>
     <string name="l10n_09ca55ca52d207f2" formatted="false">"مشاركة"</string>
     <string name="l10n_12f98a70d6319400" formatted="false">"إظهار مقتطفات الرد"</string>
+    <string name="l10n_7cdb45a0a913f5a9" formatted="false">"??? ????? ??????."</string>
     <string name="l10n_ca6d0e3aaa7d6cc0" formatted="false">"إضافة إلى التجهيز"</string>
     <string name="l10n_3e44c920427e845d" formatted="false">"تبديل"</string>
     <string name="l10n_7298d7ed988425fb" formatted="false">"إزالة من التجهيز"</string>

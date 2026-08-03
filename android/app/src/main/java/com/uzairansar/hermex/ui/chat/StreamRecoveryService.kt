@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.uzairansar.hermex.AppVisibilityTracker
 import com.uzairansar.hermex.HermexApplication
 import com.uzairansar.hermex.core.model.SessionStatusResponse
+import com.uzairansar.hermex.core.network.HermesApiClient
 import com.uzairansar.hermex.core.network.HermesJson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,17 @@ class StreamRecoveryService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_CLEAR_SERVER -> {
+                intent.serverId()?.let { serverId ->
+                    store.records()
+                        .filter { it.serverId == serverId }
+                        .forEach { record ->
+                            jobs.remove(record.key)?.cancel()
+                            store.remove(record.key)
+                            notifier.clear(record.serverId, record.sessionId)
+                        }
+                }
+            }
             ACTION_STOP -> {
                 val keys = intent.recordKeys(store.records())
                 keys.forEach { key ->
@@ -68,12 +80,17 @@ class StreamRecoveryService : Service() {
         }
         ensureForeground(records.first())
         records.forEach(::launchMonitor)
+        // Records are durable and age out after five hours, so a killed monitor can safely resume.
         return START_STICKY
     }
 
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        abandonAllRecovery()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -83,21 +100,30 @@ class StreamRecoveryService : Service() {
             scope.launch {
                 val ownerJob = currentCoroutineContext()[Job]!!
                 var consecutiveFailures = 0
+                var client: HermesApiClient? = null
                 try {
-                    val client = (application as HermexApplication).container.apiClient(record.serverId.toHttpUrl())
-                    while (System.currentTimeMillis() - record.startedAtMillis < MAX_MONITOR_MILLIS) {
+                    while (store.contains(record)) {
+                        if (streamRecoveryRecordExpired(record.startedAtMillis, System.currentTimeMillis())) {
+                            if (store.removeIfCurrent(record)) {
+                                notifier.clear(record.serverId, record.sessionId)
+                            }
+                            return@launch
+                        }
                         if (LiveStreamOwnerRegistry.hasOwner(record.serverId, record.sessionId, record.streamId)) {
                             delay(POLL_INTERVAL_MILLIS)
                             continue
                         }
                         val status = try {
-                            client.chatStreamStatus(record.streamId).also { consecutiveFailures = 0 }
+                            val activeClient = client ?: (application as HermexApplication).container
+                                .apiClient(record.serverId.toHttpUrl())
+                                .also { client = it }
+                            activeClient.chatStreamStatus(record.streamId).also { consecutiveFailures = 0 }
                         } catch (error: CancellationException) {
                             throw error
                         } catch (_: Throwable) {
                             consecutiveFailures += 1
-                            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break
-                            delay(POLL_INTERVAL_MILLIS)
+                            client = null
+                            delay(streamRecoveryRetryDelayMillis(consecutiveFailures))
                             continue
                         }
                         if (!status.isActiveFor(record.streamId)) {
@@ -106,9 +132,9 @@ class StreamRecoveryService : Service() {
                         }
                         delay(POLL_INTERVAL_MILLIS)
                     }
-                    finish(record, completedNormally = false)
                 } finally {
                     jobs.remove(record.key, ownerJob)
+                    stopIfNoActiveJobs()
                 }
             }
         }
@@ -131,6 +157,24 @@ class StreamRecoveryService : Service() {
         } else {
             ensureForeground(remaining.first())
         }
+    }
+
+    private fun stopIfNoActiveJobs() {
+        if (jobs.isNotEmpty()) return
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun abandonAllRecovery() {
+        val records = store.records()
+        jobs.values.forEach { it.cancel() }
+        jobs.clear()
+        records.forEach { record ->
+            store.remove(record.key)
+            notifier.clear(record.serverId, record.sessionId)
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun ensureForeground(record: StreamRecoveryRecord) {
@@ -161,35 +205,62 @@ class StreamRecoveryService : Service() {
     companion object {
         private const val ACTION_START = "com.uzairansar.hermex.action.START_STREAM_RECOVERY"
         private const val ACTION_STOP = "com.uzairansar.hermex.action.STOP_STREAM_RECOVERY"
+        private const val ACTION_CLEAR_SERVER = "com.uzairansar.hermex.action.CLEAR_SERVER_STREAM_RECOVERY"
         private const val EXTRA_SERVER_ID = "server_id"
         private const val EXTRA_SESSION_ID = "session_id"
         private const val EXTRA_STREAM_ID = "stream_id"
         private const val POLL_INTERVAL_MILLIS = 2_000L
-        private const val MAX_MONITOR_MILLIS = 10L * 60L * 1_000L
-        private const val MAX_CONSECUTIVE_FAILURES = 5
 
-        fun start(context: Context, serverId: String, sessionId: String, streamId: String) {
+        fun start(context: Context, serverId: String, sessionId: String, streamId: String): Boolean = runCatching {
+            check(StreamRecoveryStore(context).put(StreamRecoveryRecord(serverId, sessionId, streamId))) {
+                "Could not persist background stream recovery."
+            }
             val intent = Intent(context, StreamRecoveryService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_SERVER_ID, serverId)
                 putExtra(EXTRA_SESSION_ID, sessionId)
                 putExtra(EXTRA_STREAM_ID, streamId)
             }
-            runCatching { ContextCompat.startForegroundService(context, intent) }
+            ContextCompat.startForegroundService(context, intent)
+        }.isSuccess
+
+        fun resumePending(context: Context): Boolean {
+            if (StreamRecoveryStore(context).records().isEmpty()) return true
+            val intent = Intent(context, StreamRecoveryService::class.java).apply {
+                action = ACTION_START
+            }
+            return runCatching { ContextCompat.startForegroundService(context, intent) }.isSuccess
         }
 
         fun stop(context: Context, serverId: String, sessionId: String, streamId: String? = null) {
             val store = StreamRecoveryStore(context)
-            store.records()
+            val matching = store.records()
                 .filter { it.serverId == serverId && it.sessionId == sessionId && (streamId == null || it.streamId == streamId) }
-                .forEach { store.remove(it.key) }
+            matching.forEach { store.remove(it.key) }
+            val streamIds = matching.map { it.streamId }.ifEmpty { listOfNotNull(streamId) }
+            streamIds.forEach { stoppedStreamId ->
+                val intent = Intent(context, StreamRecoveryService::class.java).apply {
+                    action = ACTION_STOP
+                    putExtra(EXTRA_SERVER_ID, serverId)
+                    putExtra(EXTRA_SESSION_ID, sessionId)
+                    putExtra(EXTRA_STREAM_ID, stoppedStreamId)
+                }
+                runCatching { context.startService(intent) }
+            }
+        }
+
+        fun clearServer(context: Context, serverId: String) {
             val intent = Intent(context, StreamRecoveryService::class.java).apply {
-                action = ACTION_STOP
+                action = ACTION_CLEAR_SERVER
                 putExtra(EXTRA_SERVER_ID, serverId)
-                putExtra(EXTRA_SESSION_ID, sessionId)
-                streamId?.let { putExtra(EXTRA_STREAM_ID, it) }
             }
             runCatching { context.startService(intent) }
+                .onFailure {
+                    val store = StreamRecoveryStore(context)
+                    store.records()
+                        .filter { it.serverId == serverId }
+                        .forEach { store.remove(it.key) }
+                }
         }
 
         private fun Intent.serverId(): String? = getStringExtra(EXTRA_SERVER_ID)?.takeIf { it.isNotBlank() }
@@ -238,30 +309,43 @@ private class StreamRecoveryStore(context: Context) {
         .orEmpty()
 
     @Synchronized
-    fun put(record: StreamRecoveryRecord) {
+    fun put(record: StreamRecoveryRecord): Boolean {
         val updated = records().associateBy { it.key }.toMutableMap().apply { put(record.key, record) }
-        persist(updated.values.toList())
+        return persist(updated.values.toList())
     }
 
     @Synchronized
-    fun remove(key: String) {
-        persist(records().filterNot { it.key == key })
+    fun remove(key: String): Boolean {
+        return persist(records().filterNot { it.key == key })
     }
 
     @Synchronized
     fun removeIfCurrent(record: StreamRecoveryRecord): Boolean {
         val current = records()
         if (current.none { it.key == record.key }) return false
-        persist(current.filterNot { it.key == record.key })
-        return true
+        return persist(current.filterNot { it.key == record.key })
     }
 
-    private fun persist(records: List<StreamRecoveryRecord>) {
-        preferences.edit().putString(RECORDS_KEY, HermesJson.encodeToString(records)).apply()
-    }
+    @Synchronized
+    fun contains(record: StreamRecoveryRecord): Boolean = records().any { it.key == record.key }
+
+    private fun persist(records: List<StreamRecoveryRecord>): Boolean =
+        preferences.edit().putString(RECORDS_KEY, HermesJson.encodeToString(records)).commit()
 
     private companion object {
         const val PREFERENCES_NAME = "hermex_stream_recovery"
         const val RECORDS_KEY = "records"
     }
 }
+
+internal fun streamRecoveryRetryDelayMillis(consecutiveFailures: Int): Long {
+    val exponent = (consecutiveFailures - 1).coerceIn(0, 5)
+    return (2_000L shl exponent).coerceAtMost(60_000L)
+}
+
+internal fun streamRecoveryShouldRetry(consecutiveFailures: Int): Boolean = consecutiveFailures > 0
+
+internal fun streamRecoveryRecordExpired(startedAtMillis: Long, nowMillis: Long): Boolean =
+    nowMillis - startedAtMillis >= MAX_STREAM_RECOVERY_AGE_MILLIS
+
+private const val MAX_STREAM_RECOVERY_AGE_MILLIS = 5L * 60L * 60L * 1_000L

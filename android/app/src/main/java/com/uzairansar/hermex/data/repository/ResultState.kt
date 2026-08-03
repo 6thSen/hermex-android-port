@@ -6,4 +6,12 @@ sealed interface ResultState<out T> {
     data class Error(val message: String, val throwable: Throwable? = null) : ResultState<Nothing>
 }
 
-fun Throwable.userMessage(): String = message ?: "Something went wrong."
+fun Throwable.userMessage(): String =
+    message
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        ?.take(MAXIMUM_USER_MESSAGE_CHARACTERS)
+        ?.takeIf { it.isNotEmpty() }
+        ?: "Something went wrong."
+
+private const val MAXIMUM_USER_MESSAGE_CHARACTERS = 1_000

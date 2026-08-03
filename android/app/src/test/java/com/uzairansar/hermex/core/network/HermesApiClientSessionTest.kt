@@ -6,12 +6,97 @@ import com.uzairansar.hermex.core.model.SessionExportFormat
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.InetAddress
 
 class HermesApiClientSessionTest {
+    @Test
+    fun loopbackTranscriptMediaUsesTheConfiguredServerOriginAndSubpath() {
+        val rebased = rebaseLoopbackMediaUrl(
+            "http://localhost:3000/api/media?path=chart.png".toHttpUrl(),
+            "https://example.com/hermes/".toHttpUrl(),
+        )
+
+        assertEquals("https://example.com/hermes/api/media?path=chart.png", rebased.toString())
+    }
+
+    @Test
+    fun goalSubmissionDecodesTheAlreadyStartedKickoffStream() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "application/json")
+                    .body("""{"ok":true,"session_id":"s1","stream_id":"goal-stream","kickoff_prompt":"Start the goal"}""")
+                    .build(),
+            )
+
+            val client = HermesApiClient(server.url("/"), OkHttpClient())
+            val response = client.submitGoal(
+                sessionId = "s1",
+                args = "ship it",
+                workspace = "/workspace",
+                model = "gpt-5",
+                modelProvider = "openai",
+                profile = "work",
+            )
+
+            val request = server.takeRequest()
+            assertEquals("goal-stream", response.streamId)
+            assertEquals("s1", response.sessionId)
+            assertEquals("Start the goal", response.kickoffPrompt)
+            assertEquals("/api/goal", request.url.encodedPath)
+            assertEquals(
+                """{"session_id":"s1","args":"ship it","workspace":"/workspace","model":"gpt-5","model_provider":"openai","profile":"work"}""",
+                request.body?.utf8(),
+            )
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun gitEndpointsDecodeTheServerEnvelopes() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "application/json")
+                    .body("""{"git":{"is_git":true,"branch":"main","files":[{"path":"README.md","status":"M"}]}}""")
+                    .build(),
+            )
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "application/json")
+                    .body("""{"diff":{"path":"README.md","diff":"@@ -1 +1 @@","additions":1,"deletions":1}}""")
+                    .build(),
+            )
+
+            val client = HermesApiClient(server.url("/"), OkHttpClient())
+            val status = client.gitStatus("s1")
+            val diff = client.gitDiff("s1", "README.md")
+
+            assertTrue(status.isGit == true)
+            assertEquals("main", status.branch)
+            assertEquals("README.md", status.files?.single()?.path)
+            assertEquals("@@ -1 +1 @@", diff.diff)
+            assertEquals(1, diff.additions)
+        } finally {
+            server.close()
+        }
+    }
+
     @Test
     fun newSessionSendsProfileWithoutBrowserHeaders() = runBlocking {
         val server = MockWebServer()
@@ -285,7 +370,7 @@ class HermesApiClientSessionTest {
             assertEquals("/api/session/export", request.url.encodedPath)
             assertEquals("s1", request.url.queryParameter("session_id"))
             assertEquals("html", request.url.queryParameter("format"))
-            assertEquals("<html>export</html>", file.data.decodeToString())
+            assertEquals("<html>export</html>", file.file.readText())
             assertEquals("hermes-s1.html", file.filename)
             assertEquals("text/html", file.mimeType)
             assertNull(request.headers["Origin"])
@@ -635,32 +720,33 @@ class HermesApiClientSessionTest {
     }
 
     @Test
-    fun remoteTranscriptMediaScopesCustomHeadersToSameOrigin() = runBlocking {
+    fun remoteTranscriptMediaKeepsHeadersOnSameOriginAndBlocksPublicPlainHttp() = runBlocking {
         val server = MockWebServer()
         val external = MockWebServer()
         try {
             server.start()
             external.start()
             server.enqueue(MockResponse.Builder().code(200).body("same-origin").build())
-            external.enqueue(MockResponse.Builder().code(200).body("external").build())
 
             val client = HermesApiClient(
                 baseUrl = server.url("/"),
                 client = OkHttpClient(),
                 customHeaders = { listOf(CustomHeader("X-Hermex-Test", "secret")) },
+                publicMediaDns = Dns { listOf(InetAddress.getLoopbackAddress()) },
             )
 
             val sameOriginBytes = client.remoteTranscriptMediaData(server.url("/media/image.png"))
-            val externalBytes = client.remoteTranscriptMediaData(external.url("/image.png"))
+            val externalError = runCatching {
+                client.remoteTranscriptMediaData(
+                    "http://public.example:${external.port}/image.png".toHttpUrl(),
+                )
+            }.exceptionOrNull()
 
             val sameOriginRequest = server.takeRequest()
-            val externalRequest = external.takeRequest()
             assertEquals("same-origin", sameOriginBytes.decodeToString())
-            assertEquals("external", externalBytes.decodeToString())
             assertEquals("secret", sameOriginRequest.headers["X-Hermex-Test"])
-            assertNull(externalRequest.headers["X-Hermex-Test"])
-            assertNull(externalRequest.headers["Origin"])
-            assertNull(externalRequest.headers["Referer"])
+            assertTrue(externalError is ApiError.InsecureTransport)
+            assertEquals(0, external.requestCount)
         } finally {
             server.close()
             external.close()

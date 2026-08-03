@@ -107,4 +107,63 @@ class SseStreamClientIntegrationTest {
             server.close()
         }
     }
+
+    @Test
+    fun reportsUnauthorizedStreamResponsesToTheAuthOwner() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(MockResponse.Builder().code(401).body("unauthorized").build())
+            var unauthorizedUrl: String? = null
+            val client = SseStreamClient(
+                baseUrl = server.url("/"),
+                client = OkHttpClient(),
+                onUnauthorized = { unauthorizedUrl = it.toString() },
+                customHeaders = { emptyList() },
+            )
+
+            val events = withTimeout(5_000) {
+                client.stream(server.url("/api/chat/stream?stream_id=stream-1")).toList()
+            }
+
+            assertEquals(server.url("/").toString(), unauthorizedUrl)
+            assertTrue(events.single() is SseEvent.TransportError)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun crossOriginRedirectCannotSignOutTheConfiguredServer() = runBlocking {
+        val server = MockWebServer()
+        val redirectTarget = MockWebServer()
+        try {
+            server.start()
+            redirectTarget.start()
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(302)
+                    .setHeader("Location", redirectTarget.url("/unauthorized"))
+                    .build(),
+            )
+            redirectTarget.enqueue(MockResponse.Builder().code(401).body("unauthorized").build())
+            var unauthorizedCount = 0
+            val client = SseStreamClient(
+                baseUrl = server.url("/"),
+                client = OkHttpClient(),
+                onUnauthorized = { unauthorizedCount += 1 },
+                customHeaders = { emptyList() },
+            )
+
+            val events = withTimeout(5_000) {
+                client.stream(server.url("/api/chat/stream?stream_id=stream-1")).toList()
+            }
+
+            assertEquals(0, unauthorizedCount)
+            assertTrue(events.single() is SseEvent.TransportError)
+        } finally {
+            server.close()
+            redirectTarget.close()
+        }
+    }
 }

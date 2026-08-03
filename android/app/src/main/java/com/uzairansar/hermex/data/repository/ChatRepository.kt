@@ -41,6 +41,7 @@ import com.uzairansar.hermex.core.network.SseReplayCursor
 import com.uzairansar.hermex.core.network.SseStreamClient
 import com.uzairansar.hermex.data.db.CacheDao
 import com.uzairansar.hermex.data.db.CachedMessageEntity
+import com.uzairansar.hermex.data.db.CachedSessionEntity
 import com.uzairansar.hermex.data.db.ServerCacheOwnership
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.CancellationException
@@ -91,8 +92,9 @@ class ChatRepository(
         val now = System.currentTimeMillis()
         return try {
             val session = client.session(sessionId).session
-            val messages = session?.messages.orEmpty()
-            replaceCachedMessages(sessionId, messages, now, operationGeneration)
+                ?: throw ApiError.InvalidResponse("The server did not return this conversation.")
+            val messages = session.messages.orEmpty()
+            cacheSessionSnapshot(sessionId, session, messages, now, operationGeneration)
             ResultState.Data(snapshotFromSession(session))
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -105,10 +107,14 @@ class ChatRepository(
             }
             if (!error.isChatCacheFallbackEligible()) return ResultState.Error(error.userMessage(), error)
             val cached = cacheOwnership.readIfCurrent(serverUrl, operationGeneration) {
-                cacheDao.cachedMessages(serverUrl, sessionId, now).mapNotNull { it.toMessage() }
+                val messages = cacheDao.cachedMessages(serverUrl, sessionId, now).mapNotNull { it.toMessage() }
+                val metadata = cacheDao.cachedSessions(serverUrl, now)
+                    .firstOrNull { it.sessionId == sessionId }
+                    ?.toSummary()
+                messages to metadata
             } ?: return ResultState.Error("The active profile changed while this conversation was loading.", error)
-            if (cached.isNotEmpty()) {
-                ResultState.Data(ChatSessionSnapshot(cached), fromCache = true)
+            if (cached.first.isNotEmpty()) {
+                ResultState.Data(snapshotFromCachedSession(cached.first, cached.second), fromCache = true)
             } else {
                 ResultState.Error(error.userMessage(), error)
             }
@@ -174,10 +180,17 @@ class ChatRepository(
     suspend fun startBtw(sessionId: String, question: String) = client.startBtw(sessionId, question)
     suspend fun startBackground(sessionId: String, prompt: String) = client.startBackground(sessionId, prompt)
     suspend fun backgroundStatus(sessionId: String) = client.backgroundStatus(sessionId)
-    suspend fun submitGoal(sessionId: String, args: String, model: ModelSummary?, profile: ProfileSummary?) =
+    suspend fun submitGoal(
+        sessionId: String,
+        args: String,
+        workspace: String?,
+        model: ModelSummary?,
+        profile: ProfileSummary?,
+    ) =
         client.submitGoal(
             sessionId = sessionId,
             args = args,
+            workspace = workspace,
             model = model?.id ?: model?.name,
             modelProvider = model?.provider,
             profile = profile?.name,
@@ -218,17 +231,17 @@ class ChatRepository(
     suspend fun setSessionYolo(sessionId: String, enabled: Boolean) = client.setSessionYolo(sessionId, enabled)
 
     suspend fun truncateSessionSnapshot(sessionId: String, keepCount: Int): ChatSessionSnapshot {
-        val operationGeneration = cacheOwnership.generation(serverUrl)
-        val session = client.truncateSession(sessionId, keepCount).session
-        session?.let {
-            val resolvedSessionId = it.sessionId?.takeIf { value -> value.isNotBlank() } ?: sessionId
-            replaceCachedMessages(resolvedSessionId, it.messages.orEmpty(), generation = operationGeneration)
-        }
+        val response = client.truncateSession(sessionId, keepCount)
+        val session = response.session
+            ?: throw ApiError.InvalidResponse("The server did not return the truncated session.")
+        val messages = session.messages
+            ?: throw ApiError.InvalidResponse("The server did not return the truncated transcript.")
+        val resolvedSessionId = session.sessionId?.takeIf { value -> value.isNotBlank() } ?: sessionId
+        replaceCachedMessagesAfterMutation(resolvedSessionId, messages)
         return snapshotFromSession(session)
     }
 
     suspend fun clearSessionSnapshot(sessionId: String): ChatSessionClearResult {
-        val operationGeneration = cacheOwnership.generation(serverUrl)
         val response = client.clearSession(sessionId)
         val error = response.error?.trim()?.takeIf { it.isNotBlank() }
         if (response.ok == false || error != null) {
@@ -239,8 +252,7 @@ class ChatRepository(
             ?: return ChatSessionClearResult(error = "The server did not return the cleared session.")
         val clearedMessages = session.messages.orEmpty()
         val resolvedSessionId = session.sessionId?.takeIf { it.isNotBlank() } ?: sessionId
-        val now = System.currentTimeMillis()
-        replaceCachedMessages(resolvedSessionId, clearedMessages, now, operationGeneration)
+        replaceCachedMessagesAfterMutation(resolvedSessionId, clearedMessages)
         return ChatSessionClearResult(snapshot = snapshotFromSession(session, messagesOverride = clearedMessages))
     }
 
@@ -256,10 +268,11 @@ class ChatRepository(
             modelProvider = model?.provider,
         )
         val session = response.session
+            ?: throw ApiError.InvalidResponse("The server did not return the updated session configuration.")
         return ChatSessionConfiguration(
-            workspace = session?.workspace ?: workspace,
-            model = session?.model ?: (model?.id ?: model?.name),
-            modelProvider = session?.modelProvider ?: model?.provider,
+            workspace = session.workspace ?: workspace,
+            model = session.model ?: (model?.id ?: model?.name),
+            modelProvider = session.modelProvider ?: model?.provider,
         )
     }
 
@@ -274,9 +287,11 @@ class ChatRepository(
             includeMessages = true,
             limit = MESSAGE_PAGE_LIMIT,
             before = before,
-        ).session
+        ).session ?: throw ApiError.InvalidResponse("The server did not return the requested conversation page.")
+        val olderMessages = session.messages
+            ?: throw ApiError.InvalidResponse("The server did not return messages for the requested conversation page.")
         val messages = ChatMessagePageMerger.prependOlderMessages(
-            olderMessages = session?.messages.orEmpty(),
+            olderMessages = olderMessages,
             currentMessages = currentMessages,
         )
         val now = System.currentTimeMillis()
@@ -349,6 +364,45 @@ class ChatRepository(
         }
     }
 
+    private suspend fun cacheSessionSnapshot(
+        requestedSessionId: String,
+        session: SessionDetail,
+        messages: List<ChatMessage>,
+        now: Long,
+        generation: Long,
+    ) {
+        val resolvedSessionId = session.sessionId?.takeIf { it.isNotBlank() } ?: requestedSessionId
+        val sessionEntity = CachedSessionEntity.from(serverUrl, session.toSummary(), now)
+        cacheOwnership.writeIfCurrent(serverUrl, generation) {
+            sessionEntity?.let { cacheDao.upsertSessions(listOf(it)) }
+            cacheDao.replaceMessages(
+                serverUrl,
+                resolvedSessionId,
+                messages.mapIndexed { index, message ->
+                    CachedMessageEntity.from(serverUrl, resolvedSessionId, message, index, now)
+                },
+                now,
+            )
+        }
+    }
+
+    private suspend fun replaceCachedMessagesAfterMutation(
+        sessionId: String,
+        messages: List<ChatMessage>,
+    ) {
+        val now = System.currentTimeMillis()
+        cacheOwnership.invalidateAndClear(serverUrl) {
+            cacheDao.replaceMessages(
+                serverUrl,
+                sessionId,
+                messages.mapIndexed { index, message ->
+                    CachedMessageEntity.from(serverUrl, sessionId, message, index, now)
+                },
+                now,
+            )
+        }
+    }
+
     private fun snapshotFromSession(
         session: SessionDetail?,
         messagesOverride: List<ChatMessage>? = null,
@@ -380,6 +434,20 @@ class ChatRepository(
             isStreaming = session?.isStreaming == true || activeStreamId != null,
         )
     }
+
+    private fun snapshotFromCachedSession(
+        messages: List<ChatMessage>,
+        session: SessionSummary?,
+    ): ChatSessionSnapshot = ChatSessionSnapshot(
+        messages = messages,
+        title = session?.title,
+        workspace = session?.workspace,
+        model = session?.model,
+        modelProvider = session?.modelProvider,
+        profile = session?.profile,
+        activeStreamId = session?.activeStreamId,
+        isStreaming = session?.isStreaming == true || !session?.activeStreamId.isNullOrBlank(),
+    )
 }
 
 private fun Throwable.isChatCacheFallbackEligible(): Boolean = when (this) {

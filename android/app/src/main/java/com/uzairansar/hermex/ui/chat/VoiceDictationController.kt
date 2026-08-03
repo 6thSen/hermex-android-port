@@ -51,16 +51,19 @@ class VoiceDictationController(
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
             override fun onPartialResults(partialResults: Bundle?) {
+                if (recognizer !== next) return
                 partialResults?.bestSpeechResult()?.let { onText(it, false) }
             }
 
             override fun onResults(results: Bundle?) {
+                if (recognizer !== next) return
                 results?.bestSpeechResult()?.let { onText(it, true) }
-                finish(onListeningChanged)
+                finish(next, onListeningChanged)
             }
 
             override fun onError(error: Int) {
-                finish(onListeningChanged)
+                if (recognizer !== next) return
+                finish(next, onListeningChanged)
                 if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                     onError(voiceRecognitionErrorMessage(error))
                 }
@@ -75,7 +78,7 @@ class VoiceDictationController(
         }
         runCatching { next.startListening(intent) }
             .onFailure { error ->
-                finish(onListeningChanged)
+                finish(next, onListeningChanged)
                 onError(error.message ?: "Could not start voice dictation.")
             }
     }
@@ -85,15 +88,20 @@ class VoiceDictationController(
     }
 
     fun cancel(onListeningChanged: ((Boolean) -> Unit)? = null) {
-        recognizer?.cancel()
-        recognizer?.destroy()
+        val current = recognizer
         recognizer = null
+        current?.cancel()
+        current?.destroy()
         onListeningChanged?.invoke(false)
     }
 
-    private fun finish(onListeningChanged: (Boolean) -> Unit) {
-        recognizer?.destroy()
+    private fun finish(expected: SpeechRecognizer, onListeningChanged: (Boolean) -> Unit) {
+        if (recognizer !== expected) {
+            expected.destroy()
+            return
+        }
         recognizer = null
+        expected.destroy()
         onListeningChanged(false)
     }
 }

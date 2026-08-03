@@ -213,6 +213,29 @@ class AuthRepositoryTest {
     }
 
     @Test
+    fun restoredSessionValidationRunsOnceAcrossConcurrentUiRecreation() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(json("""{"auth_enabled":true,"logged_in":true,"password_auth_enabled":true}"""))
+            val secretStore = InMemorySecretStore()
+            val registry = ServerRegistry(secretStore)
+            registry.activate(server.url("/"))
+            val repository = authRepository(registry, secretStore)
+
+            val first = async { repository.validateRestoredSessionOnce() }
+            val second = async { repository.validateRestoredSessionOnce() }
+
+            assertTrue(first.await())
+            assertTrue(second.await())
+            assertTrue(repository.restoredSessionValidationComplete)
+            assertEquals(1, server.requestCount)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
     fun logoutClearsCookiesAndServerCache() = runBlocking {
         val server = MockWebServer()
         try {

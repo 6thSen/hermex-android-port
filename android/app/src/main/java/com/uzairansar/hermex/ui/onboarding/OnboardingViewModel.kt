@@ -1,7 +1,11 @@
 package com.uzairansar.hermex.ui.onboarding
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.uzairansar.hermex.ui.SavedStatePolicy
+import com.uzairansar.hermex.ui.setBoundedString
+import com.uzairansar.hermex.core.runSuspendCatching
 import com.uzairansar.hermex.core.network.parseCustomHeaderLines
 import com.uzairansar.hermex.data.repository.AuthRepository
 import com.uzairansar.hermex.data.repository.AuthState
@@ -23,13 +27,16 @@ data class OnboardingUiState(
 
 class OnboardingViewModel(
     private val authRepository: AuthRepository,
+    private val savedStateHandle: SavedStateHandle? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(initialState())
     val state: StateFlow<OnboardingUiState> = _state
 
     fun updateServerUrl(value: String) = _state.update {
+        val boundedValue = SavedStatePolicy.boundedInput(value)
+        savedStateHandle?.setBoundedString(SAVED_SERVER_URL, boundedValue)
         it.copy(
-            serverUrl = value,
+            serverUrl = boundedValue,
             message = null,
             messageIsError = false,
             isPasswordRequired = true,
@@ -49,14 +56,14 @@ class OnboardingViewModel(
         val headers = parseHeadersOrShowMessage(snapshot.customHeadersText) ?: return
         viewModelScope.launch {
             _state.update { it.copy(isBusy = true, message = null, messageIsError = false) }
-            runCatching { authRepository.testConnection(snapshot.serverUrl, headers) }
+            runSuspendCatching { authRepository.testConnection(snapshot.serverUrl, headers) }
                 .onSuccess { status ->
                     val passkeyOnly = status.authEnabled == true && status.passwordAuthEnabled == false
                     _state.update {
                         it.copy(
                             isBusy = false,
                             message = if (passkeyOnly) {
-                                "This server signs in with passkeys, which Hermex Android does not support yet."
+                                "This server signs in with passkeys, which Hermex doesn't support yet."
                             } else if (status.authEnabled == true) {
                                 "Connection ok. Password required."
                             } else {
@@ -79,15 +86,14 @@ class OnboardingViewModel(
         }
     }
 
-    fun connect(onConnected: () -> Unit) {
+    fun connect() {
         val snapshot = _state.value
         val headers = parseHeadersOrShowMessage(snapshot.customHeadersText) ?: return
         viewModelScope.launch {
             _state.update { it.copy(isBusy = true, message = null, messageIsError = false) }
-            runCatching { authRepository.configure(snapshot.serverUrl, snapshot.password, headers) }
+            runSuspendCatching { authRepository.configure(snapshot.serverUrl, snapshot.password, headers) }
                 .onSuccess {
                     _state.update { it.copy(isBusy = false, isConnected = true) }
-                    onConnected()
                 }
                 .onFailure { error ->
                     val message = error.message ?: "Sign in failed."
@@ -106,10 +112,10 @@ class OnboardingViewModel(
 
     private fun parseHeadersOrShowMessage(text: String) =
         runCatching { parseCustomHeaderLines(text) }
-            .onFailure { error ->
+            .onFailure {
                 _state.update {
                     it.copy(
-                        message = error.message ?: "Could not parse custom headers.",
+                        message = "Could not parse custom headers.",
                         messageIsError = true,
                     )
                 }
@@ -125,8 +131,14 @@ class OnboardingViewModel(
             .orEmpty()
             .joinToString("\n") { header -> "${header.name}: ${header.value}" }
         return OnboardingUiState(
-            serverUrl = savedServer,
+            serverUrl = SavedStatePolicy.boundedInput(
+                savedStateHandle?.get<String>(SAVED_SERVER_URL) ?: savedServer,
+            ),
             customHeadersText = savedHeaders,
         )
+    }
+
+    private companion object {
+        const val SAVED_SERVER_URL = "onboarding_server_url"
     }
 }

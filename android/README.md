@@ -55,14 +55,16 @@ Implemented foundation:
 - Markdown transcript rendering through Markwon, including tables, task lists,
   strikethrough, inline HTML, linkified text, themed code blocks, and Prism4j
   syntax highlighting for common fenced-code languages plus LaTeX math rendering.
-- Static Android launcher shortcuts for sessions, new session, panels, and
-  settings, backed by Compose deep links.
+- Static Android launcher shortcuts for sessions, new session, and new voice
+  session, backed by Compose deep links. Profile shortcuts are published
+  dynamically when the launcher has capacity.
 - Android home-screen widget with quick actions for sessions and new session.
 - Android share target intake for text and shared files: incoming files are
   copied into app cache, a fresh session is opened, shared text lands in the
   composer, and shared files upload as pending attachments.
-- Voice-note recording to a local cache file and server transcription through
-  `POST /api/transcribe`, with the transcript inserted back into the draft.
+- Voice-note recording to a local cache file, server transcription through
+  `POST /api/transcribe`, attachment upload, and immediate send. If another
+  response starts first, the transcript and upload remain safely in the composer.
 - Workspace text, raw image, and binary metadata previews.
 - Panels for insights, scheduled task create/edit/run/pause/output/delete,
   skill detail/toggle, and editable memory sections.
@@ -84,7 +86,9 @@ Implemented foundation:
 
 Known follow-up:
 
-- Replace the temporary AGP 9 legacy Kotlin/KAPT flags once Room supports the
-  built-in Kotlin path cleanly in this dependency set.
-- Run device UI coverage for chat/git/share paths, add production release
-  signing secrets, and capture Play screenshots.
+- Migrate Room and Prism4j annotation processing from AGP's temporary
+  `com.android.legacy-kapt` bridge to KSP before the bridge is removed.
+- Remove the read-only `androidx.security.crypto` migration bridge after the
+  Android Keystore v2 storage format has shipped long enough to cover upgrades.
+- Run physical-device or emulator coverage on API 26-34, resolve Play
+  pre-launch findings, and capture final Play screenshots.

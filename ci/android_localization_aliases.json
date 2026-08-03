@@ -66,6 +66,7 @@
     "Toast notifications": "Toast Notifications",
     "Type the exact model ID the server expects.": "Type a model ID exactly as the server expects it.",
     "Use": "Done",
+    "Wrap": "Wrap Code Block Lines",
     "Working tree clean": "The working tree is clean."
   },
   "platform_aliases": {

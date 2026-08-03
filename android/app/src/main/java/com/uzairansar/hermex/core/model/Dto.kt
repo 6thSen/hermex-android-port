@@ -235,10 +235,14 @@ object ChatMessagePageMerger {
         olderMessages: List<ChatMessage>,
         currentMessages: List<ChatMessage>,
     ): List<ChatMessage> {
-        if (olderMessages.isEmpty()) return currentMessages
-        val seenKeys = currentMessages.map { it.stablePageKey() }.toMutableSet()
+        val uniqueCurrentMessages = currentMessages
+            .asReversed()
+            .distinctBy { it.stablePageKey() }
+            .asReversed()
+        if (olderMessages.isEmpty()) return uniqueCurrentMessages
+        val seenKeys = uniqueCurrentMessages.map { it.stablePageKey() }.toMutableSet()
         val uniqueOlderMessages = olderMessages.filter { message -> seenKeys.add(message.stablePageKey()) }
-        return uniqueOlderMessages + currentMessages
+        return uniqueOlderMessages + uniqueCurrentMessages
     }
 
     private fun ChatMessage.stablePageKey(): String =
@@ -951,6 +955,8 @@ data class GoalSubmissionResponse(
     val message: String? = null,
     val goal: SubmittedGoal? = null,
     @SerialName("kickoff_prompt") val kickoffPrompt: String? = null,
+    @SerialName("stream_id") val streamId: String? = null,
+    @SerialName("session_id") val sessionId: String? = null,
     val decision: GoalDecision? = null,
     val error: String? = null,
 )
@@ -1210,12 +1216,20 @@ data class ModelCatalogResponse(
     val flattenedModels: List<ModelSummary>
         get() {
             val catalogModels = buildList {
-                addAll(models.orEmpty())
+                addAll(
+                    models.orEmpty().map { model ->
+                        if (model.provider.isNullOrBlank()) {
+                            model.copy(provider = model.providerId ?: activeProvider)
+                        } else {
+                            model
+                        }
+                    },
+                )
                 groups.orEmpty().forEach { group ->
                     (group.models.orEmpty() + group.extraModels.orEmpty()).forEach { model ->
                         add(
                             if (model.provider.isNullOrBlank()) {
-                                model.copy(provider = group.providerId ?: group.provider)
+                                model.copy(provider = model.providerId ?: group.providerId ?: group.provider)
                             } else {
                                 model
                             },
@@ -1283,6 +1297,7 @@ data class ModelSummary(
     val id: String? = null,
     val name: String? = null,
     val provider: String? = null,
+    @SerialName("provider_id") val providerId: String? = null,
     val label: String? = null,
 )
 
@@ -1570,6 +1585,9 @@ private fun JsonElement?.intValueOrNull(): Int? {
 data class CronMutationResponse(
     val ok: Boolean? = null,
     val job: CronJob? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    val status: String? = null,
+    val elapsed: Double? = null,
     val error: String? = null,
 )
 
@@ -1830,6 +1848,12 @@ data class GitStatusResponse(
 )
 
 @Serializable
+data class GitStatusEnvelope(
+    val git: GitStatusResponse? = null,
+    val error: String? = null,
+)
+
+@Serializable
 data class GitFileChange(
     val path: String? = null,
     @SerialName("workspace_path") val workspacePath: String? = null,
@@ -1889,6 +1913,12 @@ data class GitDiffResponse(
     val isTooLarge: Boolean
         get() = tooLarge == true || camelTooLarge == true
 }
+
+@Serializable
+data class GitDiffEnvelope(
+    val diff: GitDiffResponse? = null,
+    val error: String? = null,
+)
 
 @Serializable
 data class GitMutationResponse(

@@ -3,6 +3,7 @@ package com.uzairansar.hermex.ui.panels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.uzairansar.hermex.core.runSuspendCatching
 import com.uzairansar.hermex.core.model.CronCreateRequest
 import com.uzairansar.hermex.core.model.CronJob
 import com.uzairansar.hermex.core.model.CronOutputResponse
@@ -14,6 +15,9 @@ import com.uzairansar.hermex.core.model.SkillContentResponse
 import com.uzairansar.hermex.core.model.SkillSummary
 import com.uzairansar.hermex.data.repository.PanelsRepository
 import com.uzairansar.hermex.core.network.HermesJson
+import com.uzairansar.hermex.ui.SavedStatePolicy
+import com.uzairansar.hermex.ui.setBoundedEncodedState
+import com.uzairansar.hermex.ui.setBoundedString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -93,13 +97,16 @@ class PanelsViewModel(
     private val savedStateHandle: SavedStateHandle? = null,
 ) : ViewModel() {
     private val restoredTaskDraft = savedStateHandle?.get<String>(SAVED_TASK_DRAFT)
-        ?.let { runCatching { HermesJson.decodeFromString<CronTaskDraft>(it) }.getOrNull() }
+        ?.let { runCatching { HermesJson.decodeFromString<CronTaskDraft>(it).boundedForPersistence() }.getOrNull() }
     private val _state = MutableStateFlow(
         PanelsUiState(
             taskDraft = restoredTaskDraft,
-            memorySection = savedStateHandle?.get<String>(SAVED_MEMORY_SECTION) ?: "memory",
+            memorySection = savedStateHandle?.get<String>(SAVED_MEMORY_SECTION)
+                ?.let { SavedStatePolicy.boundedInput(it) }
+                ?: "memory",
             memoryDraft = savedStateHandle?.get<String>(SAVED_MEMORY_DRAFT).orEmpty(),
-            editingMemorySection = savedStateHandle?.get<String>(SAVED_EDITING_MEMORY_SECTION),
+            editingMemorySection = savedStateHandle?.get<String>(SAVED_EDITING_MEMORY_SECTION)
+                ?.let { SavedStatePolicy.boundedInput(it) },
         ),
     )
     val state: StateFlow<PanelsUiState> = _state
@@ -284,15 +291,26 @@ class PanelsViewModel(
 
     fun runCron(job: CronJob) {
         mutate("Task started.") {
-            val id = job.stableId ?: return@mutate "Task id unavailable."
-            repository.runCron(id).error
+            val id = job.serverJobId ?: return@mutate "Task id unavailable."
+            val response = repository.runCron(id)
+            when {
+                !response.error.isNullOrBlank() -> response.error
+                response.ok == false && response.status == "already_running" ->
+                    "Task is already running${response.elapsed?.let { " (${String.format(java.util.Locale.US, "%.1f", it)}s)" }.orEmpty()}."
+                response.ok == false -> "The server could not start this task."
+                else -> null
+            }
         }
     }
 
     fun pauseOrResumeCron(job: CronJob) {
         mutate(if (job.isPaused) "Task resumed." else "Task paused.") {
-            val id = job.stableId ?: return@mutate "Task id unavailable."
-            if (job.isPaused) repository.resumeCron(id).error else repository.pauseCron(id).error
+            val id = job.serverJobId ?: return@mutate "Task id unavailable."
+            if (job.isPaused) {
+                repository.resumeCron(id).mutationError("The server could not resume this task.")
+            } else {
+                repository.pauseCron(id).mutationError("The server could not pause this task.")
+            }
         }
     }
 
@@ -301,7 +319,7 @@ class PanelsViewModel(
     }
 
     fun openCronDetail(job: CronJob) {
-        val id = job.stableId ?: return
+        val id = job.serverJobId ?: return
         cronDetailJob?.cancel()
         cronDetailJob = viewModelScope.launch {
             _state.update {
@@ -313,7 +331,7 @@ class PanelsViewModel(
                     notice = null,
                 )
             }
-            runCatching { repository.cronOutput(id) }
+            runSuspendCatching { repository.cronOutput(id) }
                 .onSuccess { output ->
                     _state.update {
                         if (it.selectedCronDetail?.stableId == id) {
@@ -353,7 +371,7 @@ class PanelsViewModel(
     fun openEditTask(job: CronJob) {
         setTaskDraft(
             CronTaskDraft(
-                    editingJobId = job.stableId,
+                    editingJobId = job.serverJobId,
                     name = job.name.orEmpty(),
                     prompt = job.prompt ?: job.command.orEmpty(),
                     schedule = job.editableScheduleText,
@@ -367,8 +385,9 @@ class PanelsViewModel(
     }
 
     fun updateTaskDraft(draft: CronTaskDraft) {
-        savedStateHandle?.set(SAVED_TASK_DRAFT, HermesJson.encodeToString(draft))
-        _state.update { it.copy(taskDraft = draft, error = null) }
+        val boundedDraft = draft.boundedForPersistence()
+        savedStateHandle?.setBoundedEncodedState(SAVED_TASK_DRAFT, HermesJson.encodeToString(boundedDraft))
+        _state.update { it.copy(taskDraft = boundedDraft, error = null) }
     }
 
     fun dismissTaskEditor() {
@@ -402,7 +421,7 @@ class PanelsViewModel(
                         profile = draft.profile.trim().ifBlank { null },
                         toastNotifications = draft.toastNotifications,
                     ),
-                ).error
+                ).mutationError("The server could not update this task.")
             } else {
                 repository.createCron(
                     CronCreateRequest(
@@ -415,7 +434,7 @@ class PanelsViewModel(
                         profile = draft.profile.trim().ifBlank { null },
                         toastNotifications = draft.toastNotifications,
                     ),
-                ).error
+                ).mutationError("The server could not create this task.")
             }
             if (error == null) {
                 savedStateHandle?.remove<String>(SAVED_TASK_DRAFT)
@@ -436,8 +455,8 @@ class PanelsViewModel(
     fun confirmDeleteCron() {
         val job = _state.value.pendingDeleteCron ?: return
         mutate("Task deleted.") {
-            val id = job.stableId ?: return@mutate "Task id unavailable."
-            repository.deleteCron(id).error
+            val id = job.serverJobId ?: return@mutate "Task id unavailable."
+            repository.deleteCron(id).mutationError("The server could not delete this task.")
         }
         _state.update { it.copy(pendingDeleteCron = null) }
     }
@@ -458,7 +477,7 @@ class PanelsViewModel(
                     isLoadingSkillFile = false,
                 )
             }
-            runCatching { repository.skillContent(name) }
+            runSuspendCatching { repository.skillContent(name) }
                 .onSuccess { detail ->
                     _state.update {
                         if (it.selectedSkillName == name) it.copy(selectedSkill = detail, isMutating = false) else it
@@ -486,6 +505,8 @@ class PanelsViewModel(
                 selectedSkill = null,
                 selectedSkillFileName = null,
                 selectedSkillFileContent = null,
+                isMutating = false,
+                isLoadingSkillFile = false,
             )
         }
     }
@@ -503,7 +524,7 @@ class PanelsViewModel(
                     notice = null,
                 )
             }
-            runCatching { repository.skillContent(name, fileName) }
+            runSuspendCatching { repository.skillContent(name, fileName) }
                 .onSuccess { detail ->
                     _state.update {
                         if (it.selectedSkillName != name || it.selectedSkillFileName != fileName) return@update it
@@ -555,9 +576,9 @@ class PanelsViewModel(
                     notice = null,
                 )
             }
-            runCatching { repository.toggleSkill(name, enable) }
+            runSuspendCatching { repository.toggleSkill(name, enable) }
                 .onSuccess { response ->
-                    if (response.error == null) {
+                    if (response.error == null && response.ok != false) {
                         _state.update {
                             it.copy(
                                 togglingSkillNames = it.togglingSkillNames - name,
@@ -570,7 +591,7 @@ class PanelsViewModel(
                             it.copy(
                                 skills = it.skills.withSkillDisabled(name, skill.disabled),
                                 togglingSkillNames = it.togglingSkillNames - name,
-                                error = response.error,
+                                error = response.error ?: "The server could not update this skill.",
                             )
                         }
                     }
@@ -589,16 +610,15 @@ class PanelsViewModel(
 
     fun selectMemorySection(section: String) {
         val memory = _state.value.memory
-        savedStateHandle?.set(SAVED_MEMORY_SECTION, section)
-        savedStateHandle?.set(SAVED_MEMORY_DRAFT, memory.sectionText(section))
+        savedStateHandle?.setBoundedString(SAVED_MEMORY_SECTION, section)
+        persistMemoryDraft(memory.sectionText(section), editingSection = null)
         _state.update { it.copy(memorySection = section, memoryDraft = memory.sectionText(section), error = null, notice = null) }
     }
 
     fun openMemoryEditor(section: String) {
         val memory = _state.value.memory
-        savedStateHandle?.set(SAVED_MEMORY_SECTION, section)
-        savedStateHandle?.set(SAVED_MEMORY_DRAFT, memory.sectionText(section))
-        savedStateHandle?.set(SAVED_EDITING_MEMORY_SECTION, section)
+        savedStateHandle?.setBoundedString(SAVED_MEMORY_SECTION, section)
+        persistMemoryDraft(memory.sectionText(section), editingSection = section)
         _state.update {
             it.copy(
                 memorySection = section,
@@ -616,7 +636,7 @@ class PanelsViewModel(
     }
 
     fun updateMemoryDraft(value: String) {
-        savedStateHandle?.set(SAVED_MEMORY_DRAFT, value)
+        persistMemoryDraft(value, editingSection = _state.value.editingMemorySection)
         _state.update { it.copy(memoryDraft = value, error = null) }
     }
 
@@ -639,9 +659,10 @@ class PanelsViewModel(
         afterSuccess: () -> Unit = {},
         action: suspend () -> String?,
     ) {
+        if (_state.value.isMutating) return
+        _state.update { it.copy(isMutating = true, error = null, notice = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isMutating = true, error = null, notice = null) }
-            runCatching { action() }
+            runSuspendCatching { action() }
                 .onSuccess { error ->
                     if (error == null) {
                         _state.update { it.copy(isMutating = false, notice = success) }
@@ -656,8 +677,20 @@ class PanelsViewModel(
     }
 
     private fun setTaskDraft(draft: CronTaskDraft) {
-        savedStateHandle?.set(SAVED_TASK_DRAFT, HermesJson.encodeToString(draft))
-        _state.update { it.copy(taskDraft = draft, error = null, notice = null) }
+        val boundedDraft = draft.boundedForPersistence()
+        savedStateHandle?.setBoundedEncodedState(SAVED_TASK_DRAFT, HermesJson.encodeToString(boundedDraft))
+        _state.update { it.copy(taskDraft = boundedDraft, error = null, notice = null) }
+    }
+
+    private fun persistMemoryDraft(value: String, editingSection: String?) {
+        val handle = savedStateHandle ?: return
+        if (value.length <= SavedStatePolicy.MaximumEncodedStateCharacters) {
+            handle.set(SAVED_MEMORY_DRAFT, value)
+            handle.setBoundedString(SAVED_EDITING_MEMORY_SECTION, editingSection)
+        } else {
+            handle.remove<String>(SAVED_MEMORY_DRAFT)
+            handle.remove<String>(SAVED_EDITING_MEMORY_SECTION)
+        }
     }
 
     private companion object {
@@ -668,8 +701,25 @@ class PanelsViewModel(
     }
 }
 
+private fun CronTaskDraft.boundedForPersistence(): CronTaskDraft = copy(
+    editingJobId = editingJobId?.let { SavedStatePolicy.boundedInput(it) },
+    name = SavedStatePolicy.boundedInput(name),
+    prompt = SavedStatePolicy.boundedInput(prompt),
+    schedule = SavedStatePolicy.boundedInput(schedule),
+    deliver = SavedStatePolicy.boundedInput(deliver),
+    skillsText = SavedStatePolicy.boundedInput(skillsText),
+    model = SavedStatePolicy.boundedInput(model),
+    profile = SavedStatePolicy.boundedInput(profile),
+)
+
 val CronJob.stableId: String?
     get() = jobId ?: id ?: name
+
+val CronJob.serverJobId: String?
+    get() = jobId ?: id
+
+private fun com.uzairansar.hermex.core.model.CronMutationResponse.mutationError(fallback: String): String? =
+    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeIf { ok == false }
 
 val CronJob.displayName: String
     get() = name?.takeIf { it.isNotBlank() }

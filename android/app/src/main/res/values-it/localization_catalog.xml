@@ -1064,6 +1064,7 @@
     <string name="l10n_7bab0e5ded8bc6f0" formatted="false">"Digita un ID modello esattamente come lo richiede il server."</string>
     <string name="l10n_1d4d43cc6f3a833e" formatted="false">"Fine"</string>
     <string name="l10n_9d051101e772ba11" formatted="false">"L’albero di lavoro è pulito."</string>
+    <string name="l10n_c3447e7954fa5698" formatted="false">"A capo automatico nelle righe di codice"</string>
     <string name="l10n_650c8b9689349c6f" formatted="false">"Android e Comandi rapidi"</string>
     <string name="l10n_4995a18a7feb07d3" formatted="false">"Notifiche Android consentite."</string>
     <string name="l10n_6ffbb15ebde8242f" formatted="false">"Notifiche Android disabilitate."</string>
@@ -1075,12 +1076,16 @@
     <string name="l10n_e926bfb2bfdf0fb3" formatted="false">"%lld sessioni archiviate"</string>
     <string name="l10n_a91bcce893b5de90" formatted="false">"Sempre"</string>
     <string name="l10n_b52b36b7269fbfc5" formatted="false">"Indietro"</string>
+    <string name="l10n_9d0de6c0ee2fc2e7" formatted="false">"Impossibile avviare il ripristino dello stream in background."</string>
     <string name="l10n_2df57c166c21b929" formatted="false">"Crea commit selezionato"</string>
     <string name="l10n_8fdb5e04fadec4fa" formatted="false">"Finestra di contesto"</string>
+    <string name="l10n_c2b5cadf49d51715" formatted="false">"Impossibile analizzare le intestazioni personalizzate."</string>
+    <string name="l10n_98de890b6fcd67b1" formatted="false">"Impossibile reimpostare l?archiviazione sicura."</string>
     <string name="l10n_53577bb5df0ee9b6" formatted="false">"Nega"</string>
     <string name="l10n_dc3decbb93847518" formatted="false">"Dettagli"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"Scarta"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"Modifiche ai file"</string>
+    <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex non ha potuto aprire i dati crittografati dell?account. Il ripristino rimuover? da questo dispositivo i server salvati, i cookie di accesso e le intestazioni personalizzate."</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"Carica immagine remota"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"Nome: valore"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"Apri"</string>
@@ -1088,12 +1093,15 @@
     <string name="l10n_bfa710ae1583142c" formatted="false">"Richieste in sospeso: %lld"</string>
     <string name="l10n_d325fcd919384f39" formatted="false">"Accoda"</string>
     <string name="l10n_409a421432653b85" formatted="false">"Registrazione nota vocale"</string>
+    <string name="l10n_fdc37d196084ba7a" formatted="false">"Reimposta dati sicuri"</string>
     <string name="l10n_6e617e4fc9da3de9" formatted="false">"Risposta"</string>
     <string name="l10n_29251fb4a89acc46" formatted="false">"Salvataggio memoria..."</string>
+    <string name="l10n_5c36abc75309eaa9" formatted="false">"L'archiviazione sicura richiede il ripristino"</string>
     <string name="l10n_1dfa53963abca0f4" formatted="false">"Invio nota vocale..."</string>
     <string name="l10n_ed2a7acac11f4394" formatted="false">"URL dei server, intestazioni personalizzate e cookie sono archiviati nella memoria crittografata di Android."</string>
     <string name="l10n_09ca55ca52d207f2" formatted="false">"Condividi"</string>
     <string name="l10n_12f98a70d6319400" formatted="false">"Mostra estratti della risposta"</string>
+    <string name="l10n_7cdb45a0a913f5a9" formatted="false">"Accesso non riuscito."</string>
     <string name="l10n_ca6d0e3aaa7d6cc0" formatted="false">"Prepara"</string>
     <string name="l10n_3e44c920427e845d" formatted="false">"Cambia"</string>
     <string name="l10n_7298d7ed988425fb" formatted="false">"Rimuovi dalla preparazione"</string>

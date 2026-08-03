@@ -50,6 +50,8 @@ class WorkspaceFilePreviewPolicyTest {
         assertTrue(shouldRenderWorkspaceTextPreview(""))
         assertTrue(shouldRenderWorkspaceTextPreview("content"))
         assertFalse(shouldRenderWorkspaceTextPreview(null))
+        assertFalse(shouldRenderWorkspaceTextPreview("header\u0000binary"))
+        assertFalse(shouldRenderWorkspaceTextPreview("\uFFFD".repeat(20)))
     }
 
     @Test

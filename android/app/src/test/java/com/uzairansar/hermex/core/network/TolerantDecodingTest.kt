@@ -45,6 +45,15 @@ class TolerantDecodingTest {
     }
 
     @Test
+    fun modelCatalogPreservesProviderIdsFromTopLevelModels() {
+        val decoded = HermesJson.decodeFromString<ModelCatalogResponse>(
+            """{"active_provider":"openrouter","models":[{"id":"gpt-5","provider_id":"openai"},{"id":"claude"}]}""",
+        )
+
+        assertEquals(listOf("openai", "openrouter"), decoded.flattenedModels.map { it.provider })
+    }
+
+    @Test
     fun reasoningDecodesCurrentReasoningEffortField() {
         val json = """
             {

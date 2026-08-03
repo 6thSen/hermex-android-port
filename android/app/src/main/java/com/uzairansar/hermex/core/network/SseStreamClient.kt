@@ -14,8 +14,9 @@ import okio.BufferedSource
 import java.io.IOException
 
 class SseStreamClient(
-    baseUrl: HttpUrl,
+    private val baseUrl: HttpUrl,
     client: OkHttpClient,
+    private val onUnauthorized: (HttpUrl) -> Unit = {},
     private val customHeaders: () -> List<CustomHeader>,
 ) {
     private val client: OkHttpClient = client.newBuilder()
@@ -47,6 +48,9 @@ class SseStreamClient(
                 override fun onResponse(call: Call, response: Response) {
                     response.use {
                         if (!response.isSuccessful) {
+                            if (response.code == 401 && response.request.url.isSameOriginAs(baseUrl)) {
+                                onUnauthorized(baseUrl)
+                            }
                             val error = IOException("SSE request failed with HTTP ${response.code}.")
                             trySendBlocking(SseEvent.TransportError(requireNotNull(error.message)))
                             close()
@@ -81,6 +85,9 @@ class SseStreamClient(
         internal const val MAX_SSE_EVENT_CHARACTERS = 1024 * 1024
     }
 }
+
+private fun HttpUrl.isSameOriginAs(other: HttpUrl): Boolean =
+    scheme == other.scheme && host == other.host && port == other.port
 
 private class SseEventTooLargeException : IOException()
 

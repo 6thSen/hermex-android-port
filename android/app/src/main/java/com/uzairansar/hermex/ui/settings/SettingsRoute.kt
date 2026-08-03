@@ -47,9 +47,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,17 +72,20 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.widthIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.core.content.ContextCompat
 import com.uzairansar.hermex.R
 import com.uzairansar.hermex.data.preferences.displayModelTitle
@@ -103,6 +109,7 @@ import com.uzairansar.hermex.ui.theme.hermexGlass
 import com.uzairansar.hermex.ui.notifications.AndroidNotificationPermissionPolicy
 import com.uzairansar.hermex.ui.chat.StreamStatusNotifier
 import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.SecureContentEffect
 import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 @Composable
@@ -124,9 +131,21 @@ fun SettingsRoute(
                 @Suppress("UNCHECKED_CAST")
                 return SettingsViewModel(authRepository, localSettingsRepository, cacheMaintenanceRepository, panelsRepository) as T
             }
+
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                @Suppress("UNCHECKED_CAST")
+                return SettingsViewModel(
+                    authRepository,
+                    localSettingsRepository,
+                    cacheMaintenanceRepository,
+                    panelsRepository,
+                    extras.createSavedStateHandle(),
+                ) as T
+            }
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val latestOnSignedOut by rememberUpdatedState(onSignedOut)
     val loggedIn = authState as? AuthState.LoggedIn
     val context = LocalContext.current
     val appInfo = remember(context) { context.currentAndroidAppInfo() }
@@ -134,12 +153,18 @@ fun SettingsRoute(
     var selectedAppIcon by remember(appIconManager) {
         mutableStateOf(runCatching(appIconManager::currentChoice).getOrDefault(AppIconChoice.Default))
     }
-    var isAppIconPickerExpanded by remember { mutableStateOf(false) }
+    var isAppIconPickerExpanded by rememberSaveable { mutableStateOf(false) }
     var appIconErrorMessage by remember { mutableStateOf<String?>(null) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         viewModel.handleResponseCompletionNotificationPermissionResult(granted)
     }
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            if (event == SettingsEvent.SignedOut) latestOnSignedOut()
+        }
+    }
 
     DisposableEffect(lifecycleOwner, context, viewModel, appIconManager) {
         fun refreshNotificationPermission() {
@@ -541,7 +566,7 @@ fun SettingsRoute(
                     Spacer(Modifier.height(10.dp))
                     HermexPillButton(
                         label = if (state.isSigningOut) "Signing out..." else "Sign Out of This Server",
-                        onClick = { viewModel.signOut(onSignedOut) },
+                        onClick = viewModel::signOut,
                         enabled = !state.isSigningOut && loggedIn != null,
                         filled = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -550,7 +575,7 @@ fun SettingsRoute(
             }
         }
         }
-        SettingsDialogs(state, viewModel, onSignedOut)
+        SettingsDialogs(state, viewModel)
     }
 }
 
@@ -865,16 +890,17 @@ private fun HeaderLogoColorSettings(
     selectedHex: String,
     onSelected: (String) -> Unit,
 ) {
-    var customDialogVisible by remember { mutableStateOf(false) }
-    var customHexDraft by remember(selectedHex) { mutableStateOf(selectedHex) }
+    var customDialogVisible by rememberSaveable { mutableStateOf(false) }
+    var customHexDraft by rememberSaveable(selectedHex) { mutableStateOf(selectedHex) }
     val selectedName = HeaderLogoColorPresets.firstOrNull { it.second.equals(selectedHex, ignoreCase = true) }?.first ?: "Custom"
+    val customHeaderLogoColorDescription = localizedString("Header Logo Color")
     Row(
         modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(localizedString("Header Logo Color"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(selectedName, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+        Text(localizedString(selectedName), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
     }
     Box(
         modifier = Modifier
@@ -899,6 +925,7 @@ private fun HeaderLogoColorSettings(
         HeaderLogoColorPresets.forEach { (name, hex) ->
             val isSelected = hex.equals(selectedHex, ignoreCase = true)
             val color = hermexColorFromHex(hex) ?: Color.White
+            val colorDescription = localizedStringFormat("%@ header logo color", localizedString(name))
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -910,7 +937,7 @@ private fun HeaderLogoColorSettings(
                         shape = CircleShape,
                     )
                     .semantics {
-                        contentDescription = "$name header logo color"
+                        contentDescription = colorDescription
                         this.selected = isSelected
                     }
                     .clickable { onSelected(hex) },
@@ -933,7 +960,8 @@ private fun HeaderLogoColorSettings(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .semantics { contentDescription = "Custom header logo color" }
+            .testTag("header_custom_color_row")
+            .semantics { contentDescription = customHeaderLogoColorDescription }
             .clickable {
                 customHexDraft = selectedHex
                 customDialogVisible = true
@@ -1267,7 +1295,6 @@ private fun StatusText(text: String, isError: Boolean) {
 private fun SettingsDialogs(
     state: SettingsUiState,
     viewModel: SettingsViewModel,
-    onSignedOut: () -> Unit,
 ) {
     if (state.showDefaultModelPicker) {
         DefaultModelPickerDialog(
@@ -1381,10 +1408,10 @@ private fun SettingsDialogs(
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::cancelClearCache,
             title = { Text(localizedString("Clear Offline Cache?")) },
-            text = { Text("Remove cached sessions and messages for ${server.displayName}. Server data is not changed.") },
+            text = { Text(server.displayName) },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmClearCache, enabled = !state.isClearingCache) {
-                    Text(if (state.isClearingCache) "Clearing..." else "Clear")
+                    Text(localizedString("Clear"))
                 }
             },
             dismissButton = { TextButton(onClick = viewModel::cancelClearCache) { Text(localizedString("Cancel")) } },
@@ -1398,13 +1425,13 @@ private fun SettingsDialogs(
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::cancelForgetServer,
             title = { Text(localizedString("Forget Server?")) },
-            text = { Text("Remove ${server.displayName}, its encrypted headers, cookies, offline cache, and saved registry entry. Sign in again to add it back.") },
+            text = { Text(server.displayName) },
             confirmButton = {
                 TextButton(
-                    onClick = { viewModel.confirmForgetServer(onSignedOut) },
+                    onClick = viewModel::confirmForgetServer,
                     enabled = !state.isForgettingServer,
                 ) {
-                    Text(if (state.isForgettingServer) "Removing..." else "Forget")
+                    Text(localizedString("Forget"))
                 }
             },
             dismissButton = { TextButton(onClick = viewModel::cancelForgetServer) { Text(localizedString("Cancel")) } },
@@ -1419,8 +1446,8 @@ private fun DefaultModelPickerDialog(
     onSaveModel: (com.uzairansar.hermex.core.model.ModelSummary) -> Unit,
     onSaveCustom: (String) -> Unit,
 ) {
-    var searchText by remember(state.showDefaultModelPicker) { mutableStateOf("") }
-    var customModel by remember(state.showDefaultModelPicker) { mutableStateOf("") }
+    var searchText by rememberSaveable(state.showDefaultModelPicker) { mutableStateOf("") }
+    var customModel by rememberSaveable(state.showDefaultModelPicker) { mutableStateOf("") }
     val groups = remember(state.models, state.modelProviders, searchText) {
         defaultModelPickerGroups(state.models, state.modelProviders, searchText)
     }
@@ -1497,9 +1524,9 @@ private fun ServerUpdateControls(
         state.updateApplyPhase == ServerUpdateApplyPhase.Recovering
     Spacer(Modifier.height(10.dp))
     when (val updateState = state.serverUpdateState) {
-        WebUiUpdateState.UpToDate -> StatusText("Up to date", isError = false)
+        WebUiUpdateState.UpToDate -> StatusText(localizedString("Up to date"), isError = false)
         is WebUiUpdateState.UpdateAvailable -> StatusText(
-            localizedStringFormat("Update available · %lld behind", updateState.behind),
+            localizedStringFormat("Update available \u00b7 %lld behind", updateState.behind),
             isError = false,
         )
         WebUiUpdateState.Unavailable,
@@ -1585,7 +1612,7 @@ private fun DefaultProfilePickerDialog(
     onSelect: (com.uzairansar.hermex.core.model.ProfileSummary) -> Unit,
     onCreateProfile: () -> Unit,
 ) {
-    var searchText by remember(state.showDefaultProfilePicker) { mutableStateOf("") }
+    var searchText by rememberSaveable(state.showDefaultProfilePicker) { mutableStateOf("") }
     val query = searchText.trim()
     val profiles = remember(state.profiles, query) {
         if (query.isBlank()) {
@@ -1684,11 +1711,11 @@ private fun CreateProfileDialog(
     onDismiss: () -> Unit,
     onCreate: (String, Boolean, String, String, String, String) -> Unit,
 ) {
-    var name by remember(state.showCreateProfileDialog) { mutableStateOf("") }
-    var cloneConfig by remember(state.showCreateProfileDialog) { mutableStateOf(false) }
-    var defaultModel by remember(state.showCreateProfileDialog) { mutableStateOf("") }
-    var modelProvider by remember(state.showCreateProfileDialog) { mutableStateOf("") }
-    var baseUrl by remember(state.showCreateProfileDialog) { mutableStateOf("") }
+    var name by rememberSaveable(state.showCreateProfileDialog) { mutableStateOf("") }
+    var cloneConfig by rememberSaveable(state.showCreateProfileDialog) { mutableStateOf(false) }
+    var defaultModel by rememberSaveable(state.showCreateProfileDialog) { mutableStateOf("") }
+    var modelProvider by rememberSaveable(state.showCreateProfileDialog) { mutableStateOf("") }
+    var baseUrl by rememberSaveable(state.showCreateProfileDialog) { mutableStateOf("") }
     var apiKey by remember(state.showCreateProfileDialog) { mutableStateOf("") }
     val normalizedName = name.trim().lowercase()
     val invalidBaseUrl = baseUrl.trim().isNotEmpty() && !ProfileNameRules.isValidBaseUrl(baseUrl.trim())
@@ -1746,7 +1773,9 @@ private fun CreateProfileDialog(
                     singleLine = true,
                     label = { Text(localizedString("Base URL")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    supportingText = { Text(if (invalidBaseUrl) "Base URL must start with http:// or https://." else "Optional. Example: http://localhost:11434") },
+                    supportingText = {
+                        Text(localizedString(if (invalidBaseUrl) "Base URL must start with http:// or https://." else "Optional"))
+                    },
                     isError = invalidBaseUrl,
                     enabled = !state.isCreatingProfile,
                 )
@@ -1768,7 +1797,7 @@ private fun CreateProfileDialog(
                 onClick = { onCreate(name, cloneConfig, defaultModel, modelProvider, baseUrl, apiKey) },
                 enabled = canCreate,
             ) {
-                Text(if (state.isCreatingProfile) "Creating..." else "Create")
+                Text(localizedString("Create"))
             }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !state.isCreatingProfile) { Text(localizedString("Cancel")) } },
@@ -1814,6 +1843,8 @@ private fun HeaderEditorDialog(
     onDismiss: () -> Unit,
     onSave: () -> Unit,
 ) {
+    var showsHeaders by remember(server.id) { mutableStateOf(false) }
+    SecureContentEffect(showsHeaders)
     AlertDialog(
         modifier = Modifier.settingsDialogChrome(),
         shape = HermexGlassShape,
@@ -1840,7 +1871,11 @@ private fun HeaderEditorDialog(
                         Text(localizedString(error ?: "One header per line. Origin, Referer, Host, and Content-Length are blocked."))
                     },
                     isError = error != null,
+                    visualTransformation = if (showsHeaders) VisualTransformation.None else PasswordVisualTransformation(),
                 )
+                TextButton(onClick = { showsHeaders = !showsHeaders }) {
+                    Text((if (showsHeaders) "ABC " else "*** ") + localizedString("Custom Headers"))
+                }
             }
         },
         confirmButton = { TextButton(onClick = onSave) { Text(localizedString("Save")) } },
@@ -1860,6 +1895,8 @@ private fun AddServerDialog(
     onDismiss: () -> Unit,
     onSubmit: () -> Unit,
 ) {
+    var showsHeaders by remember { mutableStateOf(false) }
+    SecureContentEffect(showsHeaders)
     AlertDialog(
         modifier = Modifier.settingsDialogChrome(),
         shape = HermexGlassShape,
@@ -1907,7 +1944,11 @@ private fun AddServerDialog(
                     label = { Text(localizedString("Custom Headers")) },
                     placeholder = { Text("CF-Access-Client-Id: ...") },
                     enabled = !state.isAddingServer,
+                    visualTransformation = if (showsHeaders) VisualTransformation.None else PasswordVisualTransformation(),
                 )
+                TextButton(onClick = { showsHeaders = !showsHeaders }) {
+                    Text((if (showsHeaders) "ABC " else "*** ") + localizedString("Custom Headers"))
+                }
                 Text(localizedString("Identity"), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 ServerIdentityFields(
                     displayName = state.addServerDisplayName,
@@ -1929,7 +1970,7 @@ private fun AddServerDialog(
                 onClick = onSubmit,
                 enabled = !state.isAddingServer && state.addServerUrl.isNotBlank(),
             ) {
-                Text(if (state.isAddingServer) "Adding..." else "Add")
+                Text(localizedString("Add"))
             }
         },
         dismissButton = {

@@ -122,6 +122,7 @@ class SharedDraftStore(context: Context) {
     private val preferences = context.getSharedPreferences("hermex_share", Context.MODE_PRIVATE)
     private val cacheDirectory = context.cacheDir
 
+    @Synchronized
     fun savePendingDraft(text: String, attachments: List<SharedAttachment>): Boolean {
         val attachmentSelection = selectSharedAttachments(attachments)
         deleteSharedAttachmentCaches(attachmentSelection.rejected, cacheDirectory)
@@ -129,8 +130,9 @@ class SharedDraftStore(context: Context) {
         val trimmedText = text.trim()
         val previousDraft = loadPendingDraft(removeAfterLoad = false)
         if (trimmedText.isBlank() && attachmentSelection.accepted.isEmpty()) {
-            preferences.edit().remove(KEY).apply()
-            deleteSharedAttachmentCaches(previousDraft?.attachments.orEmpty(), cacheDirectory)
+            if (preferences.edit().remove(KEY).commit()) {
+                deleteSharedAttachmentCaches(previousDraft?.attachments.orEmpty(), cacheDirectory)
+            }
             return false
         }
 
@@ -141,9 +143,13 @@ class SharedDraftStore(context: Context) {
                 uris = attachmentSelection.accepted.map { it.uri },
             ),
         )
-        preferences.edit()
+        val saved = preferences.edit()
             .putString(KEY, encodedDraft)
-            .apply()
+            .commit()
+        if (!saved) {
+            deleteSharedAttachmentCaches(attachmentSelection.accepted, cacheDirectory)
+            return false
+        }
 
         val retainedPaths = attachmentSelection.accepted.mapNotNull { it.cachedPath }.toSet()
         deleteSharedAttachmentCaches(
@@ -153,13 +159,19 @@ class SharedDraftStore(context: Context) {
         return true
     }
 
+    @Synchronized
     fun loadPendingDraft(removeAfterLoad: Boolean = true): SharedDraft? {
         val value = preferences.getString(KEY, null) ?: return null
-        if (removeAfterLoad) preferences.edit().remove(KEY).apply()
-        return runCatching { HermesJson.decodeFromString<SharedDraft>(value) }.getOrNull()
+        val draft = runCatching { HermesJson.decodeFromString<SharedDraft>(value) }.getOrNull()
+        if (draft == null) {
+            preferences.edit().remove(KEY).apply()
+            return null
+        }
+        if (removeAfterLoad && !preferences.edit().remove(KEY).commit()) return null
+        return draft
     }
 
-    fun hasPendingDraft(): Boolean = preferences.contains(KEY)
+    fun hasPendingDraft(): Boolean = loadPendingDraft(removeAfterLoad = false) != null
 
     companion object {
         private const val KEY = "pending_share_draft"

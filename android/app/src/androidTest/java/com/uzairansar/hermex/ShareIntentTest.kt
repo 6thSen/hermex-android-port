@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.uzairansar.hermex.data.share.SharedDraftStore
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,7 +28,7 @@ class ShareIntentTest {
             this.clipData = clipData
         }
 
-        assertEquals(listOf(stream, data, clipped), intent.sharedAttachmentUris())
+        assertEquals(listOf(stream, data, clipped), intent.sharedAttachmentUris(limit = 10).uris)
     }
 
     @Test
@@ -41,6 +42,47 @@ class ShareIntentTest {
             clipData = ClipData.newUri(context.contentResolver, "shares", third)
         }
 
-        assertEquals(listOf(first, second, third), intent.sharedAttachmentUris())
+        assertEquals(listOf(first, second, third), intent.sharedAttachmentUris(limit = 10).uris)
+    }
+
+    @Test
+    fun sharedAttachmentUrisCountsEverythingBeyondTheConfiguredLimit() {
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            putParcelableArrayListExtra(
+                Intent.EXTRA_STREAM,
+                ArrayList((1..1_000).map { Uri.parse("content://shares/$it") }),
+            )
+        }
+
+        val selection = intent.sharedAttachmentUris(limit = 10)
+
+        assertEquals(10, selection.uris.size)
+        assertEquals(990, selection.overflowCount)
+    }
+
+    @Test
+    fun malformedStreamExtrasAreRejectedWithoutCrashing() {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            putExtra(Intent.EXTRA_STREAM, "not-a-uri")
+        }
+
+        val selection = intent.sharedAttachmentUris(limit = 10)
+
+        assertEquals(emptyList<Uri>(), selection.uris)
+        assertEquals(1, selection.overflowCount)
+    }
+
+    @Test
+    fun corruptPendingDraftIsRemovedInsteadOfLoopingForever() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("hermex_share", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("pending_share_draft", "not-json")
+            .commit()
+
+        val store = SharedDraftStore(context)
+
+        assertEquals(false, store.hasPendingDraft())
+        assertEquals(null, store.loadPendingDraft())
     }
 }

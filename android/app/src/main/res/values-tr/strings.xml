@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">Yeni bir oturum başlat</string>
     <string name="shortcut_new_voice_short">Sesli giriş</string>
     <string name="shortcut_new_voice_long">Sesli giriş</string>
-    <string name="shortcut_panels_short">Görevler</string>
-    <string name="shortcut_panels_long">Bellek</string>
-    <string name="shortcut_settings_short">Ayarlar</string>
-    <string name="shortcut_settings_long">Ayarlar</string>
     <string name="widget_description">Yeni Sohbet</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">Oturumlar</string>

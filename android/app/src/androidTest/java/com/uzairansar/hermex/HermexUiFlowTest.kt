@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasText as hasSemanticsText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -416,7 +417,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("Active Profile").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Review") }
         composeRule.onNodeWithText("gpt-5").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Selected profile Default").assertIsDisplayed()
+        composeRule.onNodeWithText("Default").assertIsSelected()
         composeRule.onNodeWithText("Review").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { switchProfileBody.contains("review") }
         assertTrue(switchProfileBody.contains(""""name":"review""""))
@@ -881,7 +882,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("GPT-5").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Choose Model") }
         composeRule.onNodeWithText("Search models").performTextInput("gpt-4o")
-        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("GPT-4o") }
+        composeRule.onNodeWithTag("model_picker_list").performScrollToNode(hasSemanticsText("GPT-4o"))
         composeRule.onNodeWithText("GPT-4o").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("GPT-4o") }
         composeRule.onNodeWithText("Default").performClick()
@@ -1131,7 +1132,7 @@ class HermexUiFlowTest {
 
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Visible answer") }
         composeRule.onNodeWithText("[Attached files: /workspace/hermex/design.pdf]", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Assistant response timestamp").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Response Timestamps").assertIsDisplayed()
         composeRule.onNodeWithText("Thinking").assertIsDisplayed()
         assertTrue(composeRule.onAllNodesWithText("Deep Android parity thought").fetchSemanticsNodes().isNotEmpty())
         composeRule.onNodeWithText("kotlin").assertIsDisplayed()
@@ -1506,7 +1507,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("WRITING").assertIsDisplayed()
         composeRule.onNodeWithText("UNCATEGORIZED").assertIsDisplayed()
         composeRule.onNodeWithText("Review Code").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Review Code enabled").assertIsOn()
+        composeRule.onNodeWithContentDescription("Review Code").assertIsOn()
         composeRule.onNodeWithText("Draft Plan").assertIsDisplayed()
         composeRule.onNodeWithText("review").assertIsDisplayed()
 
@@ -1700,8 +1701,8 @@ class HermexUiFlowTest {
         assertTrue(hasText("All Time"))
         composeRule.onNodeWithText("Sessions").assertIsDisplayed()
         composeRule.onNodeWithText("Estimated Cost").assertIsDisplayed()
-        composeRule.onNodeWithText("Models").assertIsDisplayed()
-        composeRule.onNodeWithText("gpt-5").assertIsDisplayed()
+        composeRule.onNodeWithText("Models").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("gpt-5").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Recent Daily Tokens").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Activity").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Source: server insights from the last 30 days.").performScrollTo().assertIsDisplayed()
@@ -1787,8 +1788,8 @@ class HermexUiFlowTest {
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Top Sessions") }
         composeRule.onNodeWithText("Sessions").assertIsDisplayed()
         composeRule.onNodeWithText("Messages").assertIsDisplayed()
-        composeRule.onNodeWithText("Top Sessions").assertIsDisplayed()
-        composeRule.onNodeWithText("Heavy Session").assertIsDisplayed()
+        composeRule.onNodeWithText("Top Sessions").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Heavy Session").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Small Session").performScrollTo().assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Source: local session metadata fallback", substring = true) }
     }
@@ -1967,7 +1968,8 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("APPEARANCE").assertIsDisplayed()
         composeRule.onNodeWithText("Header Logo Color").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Yellow header logo color").assertHasClickAction()
-        composeRule.onNodeWithText("Custom").performClick()
+        composeRule.onNodeWithTag("header_custom_color_row").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Custom Header Color") }
         composeRule.onNodeWithText("Custom Header Color").assertIsDisplayed()
         composeRule.onNodeWithTag("header_custom_color_input").performTextClearance()
         composeRule.onNodeWithTag("header_custom_color_input").performTextInput("#123456")
@@ -1983,7 +1985,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithTag("settings_list").performScrollToNode(hasSemanticsText("CHAT"))
         composeRule.onNodeWithText("CHAT").assertIsDisplayed()
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
-        composeRule.onNodeWithText("Thinking and Tool Cards").assertIsDisplayed()
+        composeRule.onNodeWithText("Thinking and Tool Cards").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Expand Thinking by Default").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Expand Tools by Default").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Streamed Text Animation").performScrollTo().assertIsDisplayed()

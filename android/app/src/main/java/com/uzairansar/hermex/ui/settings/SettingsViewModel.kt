@@ -1,11 +1,19 @@
 package com.uzairansar.hermex.ui.settings
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.uzairansar.hermex.ui.SavedStatePolicy
+import com.uzairansar.hermex.ui.setBoundedEncodedState
+import com.uzairansar.hermex.core.runSuspendCatching
+import com.uzairansar.hermex.core.network.HermesJson
 import com.uzairansar.hermex.core.model.ModelSummary
+import com.uzairansar.hermex.core.model.ModelCatalogResponse
 import com.uzairansar.hermex.core.model.ProfileSummary
+import com.uzairansar.hermex.core.model.ProfilesResponse
 import com.uzairansar.hermex.core.model.ProviderSummary
 import com.uzairansar.hermex.core.model.SettingsResponse
+import com.uzairansar.hermex.core.model.UpdatesCheckResponse
 import com.uzairansar.hermex.core.network.CustomHeader
 import com.uzairansar.hermex.core.network.parseCustomHeaderLines
 import com.uzairansar.hermex.data.repository.AddServerResult
@@ -26,10 +34,26 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
+import kotlinx.serialization.Serializable
+
+private data class ServerSettingsResults(
+    val models: Result<ModelCatalogResponse>,
+    val profiles: Result<ProfilesResponse>,
+    val settings: Result<SettingsResponse>,
+    val updates: Result<UpdatesCheckResponse>,
+)
 
 data class SettingsUiState(
     val themeMode: AppThemeMode = AppThemeMode.System,
@@ -99,22 +123,65 @@ data class SettingsUiState(
     val error: String? = null,
 )
 
+@Serializable
 data class ServerIdentityDraft(
     val displayName: String = "",
     val initials: String = "",
     val headerLogoColorHex: String = DefaultServerHeaderColorHex,
 )
 
+@Serializable
+private data class SettingsSavedState(
+    val showDefaultModelPicker: Boolean = false,
+    val showDefaultProfilePicker: Boolean = false,
+    val showCreateProfileDialog: Boolean = false,
+    val identityEditorServerId: String? = null,
+    val identityDraft: ServerIdentityDraft = ServerIdentityDraft(),
+    val addServerDialogVisible: Boolean = false,
+    val addServerUrl: String = "",
+    val addServerDisplayName: String = "",
+    val addServerInitials: String = "",
+    val addServerHeaderColorHex: String = DefaultServerHeaderColorHex,
+    val clearCacheServerId: String? = null,
+    val forgetServerId: String? = null,
+    val confirmServerUpdate: Boolean = false,
+) {
+    companion object {
+        fun from(state: SettingsUiState): SettingsSavedState = SettingsSavedState(
+            showDefaultModelPicker = state.showDefaultModelPicker,
+            showDefaultProfilePicker = state.showDefaultProfilePicker,
+            showCreateProfileDialog = state.showCreateProfileDialog,
+            identityEditorServerId = state.identityEditorServer?.id,
+            identityDraft = state.identityDraft,
+            addServerDialogVisible = state.addServerDialogVisible,
+            addServerUrl = state.addServerUrl,
+            addServerDisplayName = state.addServerDisplayName,
+            addServerInitials = state.addServerInitials,
+            addServerHeaderColorHex = state.addServerHeaderColorHex,
+            clearCacheServerId = state.clearCacheServer?.id,
+            forgetServerId = state.forgetServer?.id,
+            confirmServerUpdate = state.confirmServerUpdate,
+        )
+    }
+}
+
+sealed interface SettingsEvent {
+    data object SignedOut : SettingsEvent
+}
+
 class SettingsViewModel(
     private val authRepository: AuthRepository,
     private val localSettingsRepository: LocalSettingsRepository,
     private val cacheMaintenanceRepository: CacheMaintenanceRepository?,
     private val panelsRepository: PanelsRepository?,
+    private val savedStateHandle: SavedStateHandle? = null,
 ) : ViewModel() {
     private val initialServerSnapshot = authRepository.servers.value
     private val initialActiveAccount = initialServerSnapshot.servers.firstOrNull {
         it.id == initialServerSnapshot.activeServerId
     }
+    private val restoredState = savedStateHandle?.get<String>(SETTINGS_SAVED_TRANSIENT_STATE)
+        ?.let { encoded -> runCatching { HermesJson.decodeFromString<SettingsSavedState>(encoded) }.getOrNull() }
     private val _state = MutableStateFlow(
         SettingsUiState(
             serverSnapshot = initialServerSnapshot,
@@ -122,11 +189,46 @@ class SettingsViewModel(
                 SessionIdentitySettings(displayName = it.displayName, initials = it.initials)
             } ?: SessionIdentitySettings(),
             headerLogoColorHex = initialActiveAccount?.headerLogoColorHex ?: DefaultServerHeaderColorHex,
+            showDefaultModelPicker = restoredState?.showDefaultModelPicker == true,
+            showDefaultProfilePicker = restoredState?.showDefaultProfilePicker == true,
+            showCreateProfileDialog = restoredState?.showCreateProfileDialog == true,
+            identityEditorServer = restoredState?.identityEditorServerId?.let { id ->
+                initialServerSnapshot.servers.firstOrNull { it.id == id }
+            },
+            identityDraft = restoredState?.identityDraft ?: ServerIdentityDraft(),
+            addServerDialogVisible = restoredState?.addServerDialogVisible == true,
+            addServerUrl = restoredState?.addServerUrl.orEmpty(),
+            addServerDisplayName = restoredState?.addServerDisplayName.orEmpty(),
+            addServerInitials = restoredState?.addServerInitials.orEmpty(),
+            addServerHeaderColorHex = restoredState?.addServerHeaderColorHex ?: DefaultServerHeaderColorHex,
+            clearCacheServer = restoredState?.clearCacheServerId?.let { id ->
+                initialServerSnapshot.servers.firstOrNull { it.id == id }
+            },
+            forgetServer = restoredState?.forgetServerId?.let { id ->
+                initialServerSnapshot.servers.firstOrNull { it.id == id }
+            },
+            confirmServerUpdate = restoredState?.confirmServerUpdate == true,
         ),
     )
     val state: StateFlow<SettingsUiState> = _state
+    private val eventChannel = Channel<SettingsEvent>(Channel.BUFFERED)
+    val events = eventChannel.receiveAsFlow()
+    private var identityPersistenceJob: Job? = null
+    private var identityPersistenceGeneration = 0L
+    private var serverSettingsJob: Job? = null
+    private var serverSettingsGeneration = 0L
+    private var cliSessionsSaveJob: Job? = null
+    private var cliSessionsSaveGeneration = 0L
 
     init {
+        viewModelScope.launch {
+            _state.collectLatest { current ->
+                val encoded = withContext(Dispatchers.Default) {
+                    HermesJson.encodeToString(SettingsSavedState.from(current))
+                }
+                savedStateHandle?.setBoundedEncodedState(SETTINGS_SAVED_TRANSIENT_STATE, encoded)
+            }
+        }
         viewModelScope.launch {
             localSettingsRepository.themeMode.collectLatest { mode ->
                 _state.update { it.copy(themeMode = mode) }
@@ -200,7 +302,7 @@ class SettingsViewModel(
 
     fun setThemeMode(mode: AppThemeMode) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setThemeMode(mode) }
+            runSuspendCatching { localSettingsRepository.setThemeMode(mode) }
                 .onSuccess { _state.update { it.copy(themeMode = mode, notice = "Appearance updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update appearance.") } }
         }
@@ -208,7 +310,7 @@ class SettingsViewModel(
 
     fun setStreamingSendBehavior(behavior: StreamingSendBehavior) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setStreamingSendBehavior(behavior) }
+            runSuspendCatching { localSettingsRepository.setStreamingSendBehavior(behavior) }
                 .onSuccess { _state.update { it.copy(streamingSendBehavior = behavior, notice = "Interaction updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update interaction behavior.") } }
         }
@@ -216,7 +318,7 @@ class SettingsViewModel(
 
     fun setTintPrimaryActionsWithThemeColor(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setTintPrimaryActionsWithThemeColor(enabled) }
+            runSuspendCatching { localSettingsRepository.setTintPrimaryActionsWithThemeColor(enabled) }
                 .onSuccess { _state.update { it.copy(tintPrimaryActionsWithThemeColor = enabled, notice = "Appearance updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update appearance.") } }
         }
@@ -224,7 +326,7 @@ class SettingsViewModel(
 
     fun setHapticsEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setHapticsEnabled(enabled) }
+            runSuspendCatching { localSettingsRepository.setHapticsEnabled(enabled) }
                 .onSuccess { _state.update { it.copy(hapticsEnabled = enabled, notice = "Interaction updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update haptic feedback.") } }
         }
@@ -235,16 +337,7 @@ class SettingsViewModel(
         _state.update {
             it.copy(sessionIdentitySettings = it.sessionIdentitySettings.copy(displayName = limited))
         }
-        val targetAccount = currentActiveServerAccount()
-        val targetInitials = _state.value.sessionIdentitySettings.initials
-        val targetColor = _state.value.headerLogoColorHex
-        viewModelScope.launch {
-            runCatching {
-                localSettingsRepository.setSessionIdentityDisplayName(limited)
-                updateServerIdentity(targetAccount, limited, targetInitials, targetColor)
-            }
-                .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update session identity.") } }
-        }
+        persistActiveSessionIdentity()
     }
 
     fun setSessionIdentityInitials(initials: String) {
@@ -252,35 +345,47 @@ class SettingsViewModel(
         _state.update {
             it.copy(sessionIdentitySettings = it.sessionIdentitySettings.copy(initials = normalized))
         }
-        val targetAccount = currentActiveServerAccount()
-        val targetDisplayName = _state.value.sessionIdentitySettings.displayName
-        val targetColor = _state.value.headerLogoColorHex
-        viewModelScope.launch {
-            runCatching {
-                localSettingsRepository.setSessionIdentityInitials(normalized)
-                updateServerIdentity(targetAccount, targetDisplayName, normalized, targetColor)
-            }
-                .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update session identity.") } }
-        }
+        persistActiveSessionIdentity()
     }
 
     fun setHeaderLogoColorHex(colorHex: String) {
         val normalized = normalizedHeaderColorHex(colorHex)
         _state.update { it.copy(headerLogoColorHex = normalized) }
+        persistActiveSessionIdentity(successNotice = "Appearance updated.")
+    }
+
+    private fun persistActiveSessionIdentity(successNotice: String? = null) {
+        val snapshot = _state.value
         val targetAccount = currentActiveServerAccount()
-        val targetIdentity = _state.value.sessionIdentitySettings
-        viewModelScope.launch {
-            runCatching {
-                localSettingsRepository.setHeaderLogoColorHex(normalized)
-                updateServerIdentity(
-                    targetAccount,
-                    targetIdentity.displayName,
-                    targetIdentity.initials,
-                    normalized,
+        val identity = snapshot.sessionIdentitySettings
+        val color = snapshot.headerLogoColorHex
+        val generation = ++identityPersistenceGeneration
+        identityPersistenceJob?.cancel()
+        identityPersistenceJob = viewModelScope.launch {
+            runSuspendCatching {
+                localSettingsRepository.setSessionIdentity(
+                    displayName = identity.displayName,
+                    initials = identity.initials,
+                    headerLogoColorHex = color,
                 )
+                if (
+                    generation == identityPersistenceGeneration &&
+                    targetAccount != null &&
+                    currentActiveServerAccount()?.id == targetAccount.id
+                ) {
+                    updateServerIdentity(targetAccount, identity.displayName, identity.initials, color)
+                }
             }
-                .onSuccess { _state.update { it.copy(notice = "Appearance updated.", error = null) } }
-                .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update appearance.") } }
+                .onSuccess {
+                    if (generation == identityPersistenceGeneration && successNotice != null) {
+                        _state.update { it.copy(notice = successNotice, error = null) }
+                    }
+                }
+                .onFailure { error ->
+                    if (generation == identityPersistenceGeneration) {
+                        _state.update { it.copy(error = error.message ?: "Could not update session identity.") }
+                    }
+                }
         }
     }
 
@@ -289,7 +394,7 @@ class SettingsViewModel(
         return snapshot.servers.firstOrNull { it.id == snapshot.activeServerId }
     }
 
-    private fun updateServerIdentity(
+    private suspend fun updateServerIdentity(
         account: ServerAccount?,
         displayName: String,
         initials: String,
@@ -310,19 +415,26 @@ class SettingsViewModel(
 
     fun loadServerSettings() {
         val repository = panelsRepository ?: return
-        viewModelScope.launch {
+        val generation = ++serverSettingsGeneration
+        serverSettingsJob?.cancel()
+        serverSettingsJob = viewModelScope.launch {
             _state.update { it.copy(isLoadingServerSettings = true, error = null, notice = null) }
             val serverId = activeServerId
             val cachedCliSessions = serverId?.let { localSettingsRepository.currentShowCliSessions(it) } ?: true
-            val modelsResult = runCatching { repository.models() }
-            val profilesResult = runCatching { repository.profiles() }
-            val settingsResult = runCatching { repository.settings() }
-            val updatesResult = runCatching { repository.updatesCheck() }
+            val (modelsResult, profilesResult, settingsResult, updatesResult) = coroutineScope {
+                val models = async { runSuspendCatching { repository.models() } }
+                val profiles = async { runSuspendCatching { repository.profiles() } }
+                val settings = async { runSuspendCatching { repository.settings() } }
+                val updates = async { runSuspendCatching { repository.updatesCheck() } }
+                ServerSettingsResults(models.await(), profiles.await(), settings.await(), updates.await())
+            }
             val settings = settingsResult.getOrNull()
             val serverCliSessions = settings?.showCliSessions
+            if (generation != serverSettingsGeneration) return@launch
             if (serverId != null && serverCliSessions != null) {
-                runCatching { localSettingsRepository.setShowCliSessions(serverId, serverCliSessions) }
+                runSuspendCatching { localSettingsRepository.setShowCliSessions(serverId, serverCliSessions) }
             }
+            if (generation != serverSettingsGeneration) return@launch
             _state.update { current ->
                 current.copy(
                     isLoadingServerSettings = false,
@@ -352,7 +464,9 @@ class SettingsViewModel(
         val serverId = activeServerId ?: return
         val previous = _state.value.showCliSessions
         val shouldSyncWithServer = _state.value.cliSessionsServerSynced
-        viewModelScope.launch {
+        val generation = ++cliSessionsSaveGeneration
+        cliSessionsSaveJob?.cancel()
+        cliSessionsSaveJob = viewModelScope.launch {
             _state.update {
                 it.copy(
                     showCliSessions = enabled,
@@ -362,16 +476,19 @@ class SettingsViewModel(
                     error = null,
                 )
             }
-            runCatching { localSettingsRepository.setShowCliSessions(serverId, enabled) }
+            runSuspendCatching { localSettingsRepository.setShowCliSessions(serverId, enabled) }
+            if (generation != cliSessionsSaveGeneration) return@launch
             if (!shouldSyncWithServer) {
                 _state.update { it.copy(isSavingCliSessions = false) }
                 return@launch
             }
-            runCatching { repository.updateSettings(showCliSessions = enabled) }
+            runSuspendCatching { repository.updateSettings(showCliSessions = enabled) }
                 .onSuccess { response ->
+                    if (generation != cliSessionsSaveGeneration) return@onSuccess
                     response.showCliSessions?.let { serverValue ->
                         localSettingsRepository.setShowCliSessions(serverId, serverValue)
                     }
+                    if (generation != cliSessionsSaveGeneration) return@onSuccess
                     _state.update {
                         it.copy(
                             showCliSessions = response.showCliSessions ?: enabled,
@@ -383,6 +500,7 @@ class SettingsViewModel(
                     }
                 }
                 .onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException || generation != cliSessionsSaveGeneration) return@onFailure
                     localSettingsRepository.setShowCliSessions(serverId, previous)
                     _state.update {
                         it.copy(
@@ -397,7 +515,7 @@ class SettingsViewModel(
 
     fun setShowThinkingAndToolCards(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setShowThinkingAndToolCards(enabled) }
+            runSuspendCatching { localSettingsRepository.setShowThinkingAndToolCards(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -405,7 +523,7 @@ class SettingsViewModel(
 
     fun setThinkingCardsStartExpanded(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setThinkingCardsStartExpanded(enabled) }
+            runSuspendCatching { localSettingsRepository.setThinkingCardsStartExpanded(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -413,7 +531,7 @@ class SettingsViewModel(
 
     fun setToolCardsStartExpanded(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setToolCardsStartExpanded(enabled) }
+            runSuspendCatching { localSettingsRepository.setToolCardsStartExpanded(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -421,7 +539,7 @@ class SettingsViewModel(
 
     fun setHidesAttachmentPaths(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setHidesAttachmentPaths(enabled) }
+            runSuspendCatching { localSettingsRepository.setHidesAttachmentPaths(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -429,7 +547,7 @@ class SettingsViewModel(
 
     fun setShowsAssistantTurnTimestamps(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setShowsAssistantTurnTimestamps(enabled) }
+            runSuspendCatching { localSettingsRepository.setShowsAssistantTurnTimestamps(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -437,7 +555,7 @@ class SettingsViewModel(
 
     fun setRtlChatLayoutEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setRtlChatLayoutEnabled(enabled) }
+            runSuspendCatching { localSettingsRepository.setRtlChatLayoutEnabled(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -445,7 +563,7 @@ class SettingsViewModel(
 
     fun setWrapsCodeBlockLines(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setWrapsCodeBlockLines(enabled) }
+            runSuspendCatching { localSettingsRepository.setWrapsCodeBlockLines(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -453,7 +571,7 @@ class SettingsViewModel(
 
     fun setStreamedTextAnimationEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setStreamedTextAnimationEnabled(enabled) }
+            runSuspendCatching { localSettingsRepository.setStreamedTextAnimationEnabled(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -461,7 +579,7 @@ class SettingsViewModel(
 
     fun setShowsStatusNotificationResponseExcerpts(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setShowsStatusNotificationResponseExcerpts(enabled) }
+            runSuspendCatching { localSettingsRepository.setShowsStatusNotificationResponseExcerpts(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Chat display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update chat display.") } }
         }
@@ -469,7 +587,7 @@ class SettingsViewModel(
 
     fun setSessionRowShowMessageCount(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setSessionRowShowMessageCount(enabled) }
+            runSuspendCatching { localSettingsRepository.setSessionRowShowMessageCount(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Session display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update session display.") } }
         }
@@ -477,7 +595,7 @@ class SettingsViewModel(
 
     fun setSessionRowShowWorkspace(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setSessionRowShowWorkspace(enabled) }
+            runSuspendCatching { localSettingsRepository.setSessionRowShowWorkspace(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Session display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update session display.") } }
         }
@@ -485,7 +603,7 @@ class SettingsViewModel(
 
     fun setShowCronSessions(enabled: Boolean) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setShowCronSessions(enabled) }
+            runSuspendCatching { localSettingsRepository.setShowCronSessions(enabled) }
                 .onSuccess { _state.update { it.copy(notice = "Session display updated.", error = null) } }
                 .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not update session display.") } }
         }
@@ -493,7 +611,7 @@ class SettingsViewModel(
 
     fun setResponseCompletionNotificationsEnabled(enabled: Boolean, statusMessage: String? = null) {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setResponseCompletionNotificationsEnabled(enabled) }
+            runSuspendCatching { localSettingsRepository.setResponseCompletionNotificationsEnabled(enabled) }
                 .onSuccess {
                     _state.update {
                         it.copy(
@@ -510,7 +628,7 @@ class SettingsViewModel(
 
     fun markResponseCompletionNotificationPermissionRequested() {
         viewModelScope.launch {
-            runCatching { localSettingsRepository.setHasRequestedResponseCompletionNotificationPermission(true) }
+            runSuspendCatching { localSettingsRepository.setHasRequestedResponseCompletionNotificationPermission(true) }
                 .onSuccess { _state.update { it.copy(hasRequestedResponseCompletionNotificationPermission = true) } }
         }
     }
@@ -519,7 +637,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             val preferenceEnabled = localSettingsRepository.responseCompletionNotificationsEnabled.first()
             if (!canPostNotifications && preferenceEnabled) {
-                runCatching { localSettingsRepository.setResponseCompletionNotificationsEnabled(false) }
+                runSuspendCatching { localSettingsRepository.setResponseCompletionNotificationsEnabled(false) }
                     .onSuccess {
                         _state.update {
                             it.copy(
@@ -550,9 +668,13 @@ class SettingsViewModel(
     }
 
     fun activateServer(id: String) {
-        runCatching { authRepository.activate(id) }
-            .onSuccess { _state.update { it.copy(notice = "Active server updated.", error = null) } }
-            .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not switch server.") } }
+        identityPersistenceGeneration += 1
+        identityPersistenceJob?.cancel()
+        viewModelScope.launch {
+            runSuspendCatching { authRepository.activate(id) }
+                .onSuccess { _state.update { it.copy(notice = "Active server updated.", error = null) } }
+                .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not switch server.") } }
+        }
     }
 
     fun openIdentityEditor(account: ServerAccount) {
@@ -571,7 +693,15 @@ class SettingsViewModel(
     }
 
     fun updateIdentityDraft(draft: ServerIdentityDraft) {
-        _state.update { it.copy(identityDraft = draft.copy(initials = normalizedInitials(draft.initials)), error = null) }
+        _state.update {
+            it.copy(
+                identityDraft = draft.copy(
+                    displayName = SavedStatePolicy.boundedInput(draft.displayName),
+                    initials = normalizedInitials(draft.initials),
+                ),
+                error = null,
+            )
+        }
     }
 
     fun dismissIdentityEditor() {
@@ -588,25 +718,27 @@ class SettingsViewModel(
             fallbackFullName = account.displayName.ifBlank { account.urlString },
         )
         val color = normalizedHeaderColorHex(draft.headerLogoColorHex)
-        runCatching {
-            authRepository.updateServerIdentity(
-                account = account,
-                displayName = finalName,
-                initials = finalInitials,
-                headerLogoColorHex = color,
-            ) ?: error("Server is no longer configured.")
-        }
-            .onSuccess { updated ->
-                _state.update {
-                    it.copy(
-                        identityEditorServer = null,
-                        identityDraft = ServerIdentityDraft(),
-                        notice = "Identity saved for ${updated.displayName}.",
-                        error = null,
-                    )
-                }
+        viewModelScope.launch {
+            runSuspendCatching {
+                authRepository.updateServerIdentity(
+                    account = account,
+                    displayName = finalName,
+                    initials = finalInitials,
+                    headerLogoColorHex = color,
+                ) ?: error("Server is no longer configured.")
             }
-            .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not save identity.") } }
+                .onSuccess { updated ->
+                    _state.update {
+                        it.copy(
+                            identityEditorServer = null,
+                            identityDraft = ServerIdentityDraft(),
+                            notice = "Identity saved for ${updated.displayName}.",
+                            error = null,
+                        )
+                    }
+                }
+                .onFailure { error -> _state.update { it.copy(error = error.message ?: "Could not save identity.") } }
+        }
     }
 
     fun openHeaderEditor(account: ServerAccount) {
@@ -634,23 +766,28 @@ class SettingsViewModel(
     fun saveHeaderEditor() {
         val server = _state.value.headerEditorServer ?: return
         val parsed = runCatching { parseCustomHeaderLines(_state.value.headerEditorText) }
-        parsed
-            .onSuccess { headers ->
-                authRepository.saveCustomHeaders(server.id, headers)
-                _state.update {
-                    it.copy(
-                        customHeadersByServer = it.customHeadersByServer + (server.id to headers),
-                        headerEditorServer = null,
-                        headerEditorText = "",
-                        headerEditorError = null,
-                        notice = if (headers.isEmpty()) "Custom headers cleared." else "Custom headers saved.",
-                        error = null,
-                    )
-                }
+        parsed.onFailure { error ->
+            _state.update { it.copy(headerEditorError = error.message ?: "Could not parse custom headers.") }
+        }.getOrNull()?.let { headers ->
+            viewModelScope.launch {
+                runSuspendCatching { authRepository.saveCustomHeaders(server.id, headers) }
+                    .onSuccess {
+                        _state.update {
+                            it.copy(
+                                customHeadersByServer = it.customHeadersByServer + (server.id to headers),
+                                headerEditorServer = null,
+                                headerEditorText = "",
+                                headerEditorError = null,
+                                notice = if (headers.isEmpty()) "Custom headers cleared." else "Custom headers saved.",
+                                error = null,
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        _state.update { it.copy(headerEditorError = error.message ?: "Could not save custom headers.") }
+                    }
             }
-            .onFailure { error ->
-                _state.update { it.copy(headerEditorError = error.message ?: "Could not parse custom headers.") }
-            }
+        }
     }
 
     fun openAddServer() {
@@ -689,7 +826,7 @@ class SettingsViewModel(
     }
 
     fun updateAddServerUrl(value: String) {
-        _state.update { it.copy(addServerUrl = value, addServerError = null) }
+        _state.update { it.copy(addServerUrl = SavedStatePolicy.boundedInput(value), addServerError = null) }
     }
 
     fun updateAddServerPassword(value: String) {
@@ -701,7 +838,7 @@ class SettingsViewModel(
     }
 
     fun updateAddServerDisplayName(value: String) {
-        _state.update { it.copy(addServerDisplayName = value, addServerError = null) }
+        _state.update { it.copy(addServerDisplayName = SavedStatePolicy.boundedInput(value), addServerError = null) }
     }
 
     fun updateAddServerInitials(value: String) {
@@ -723,7 +860,7 @@ class SettingsViewModel(
             .getOrNull() ?: return
         viewModelScope.launch {
             _state.update { it.copy(isAddingServer = true, addServerError = null, notice = null, error = null) }
-            runCatching {
+            runSuspendCatching {
                 authRepository.addServer(
                     serverUrlString = snapshot.addServerUrl,
                     password = snapshot.addServerPassword,
@@ -802,7 +939,7 @@ class SettingsViewModel(
         val repository = cacheMaintenanceRepository ?: return
         viewModelScope.launch {
             _state.update { it.copy(isClearingCache = true, error = null, notice = null) }
-            runCatching { repository.clearServer(account.urlString) }
+            runSuspendCatching { repository.clearServer(account.urlString) }
                 .onSuccess {
                     _state.update { it.copy(isClearingCache = false, clearCacheServer = null, notice = "Offline cache cleared for ${account.displayName}.") }
                 }
@@ -816,7 +953,7 @@ class SettingsViewModel(
         val repository = cacheMaintenanceRepository ?: return
         viewModelScope.launch {
             _state.update { it.copy(isMaintainingCache = true, error = null, notice = null) }
-            runCatching { repository.maintenance() }
+            runSuspendCatching { repository.maintenance() }
                 .onSuccess { _state.update { it.copy(isMaintainingCache = false, notice = "Expired cache cleaned up.") } }
                 .onFailure { error ->
                     _state.update { it.copy(isMaintainingCache = false, error = error.message ?: "Could not clean up cache.") }
@@ -840,7 +977,7 @@ class SettingsViewModel(
                     notice = null,
                 )
             }
-            runCatching { repository.updatesCheckForced() }
+            runSuspendCatching { repository.updatesCheckForced() }
                 .onSuccess { response ->
                     _state.update {
                         it.copy(
@@ -900,7 +1037,7 @@ class SettingsViewModel(
                     notice = null,
                 )
             }
-            runCatching { repository.applyUpdate("webui") }
+            runSuspendCatching { repository.applyUpdate("webui") }
                 .onSuccess { response ->
                     when (response.applyOutcome()) {
                         ServerUpdateApplyOutcome.Applying -> {
@@ -940,8 +1077,20 @@ class SettingsViewModel(
         val repository = panelsRepository ?: return
         repeat(30) {
             delay(2_000)
-            val settings = runCatching { repository.settings() }.getOrNull() ?: return@repeat
-            val updateState = runCatching { repository.updatesCheck().webUiUpdateState() }.getOrNull()
+            val settings = try {
+                repository.settings()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                return@repeat
+            }
+            val updateState = try {
+                repository.updatesCheck().webUiUpdateState()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                null
+            }
                 ?: WebUiUpdateState.Unavailable
             val restartConfirmed = (settings.webuiVersion != null && settings.webuiVersion != previousVersion) ||
                 updateState == WebUiUpdateState.UpToDate
@@ -959,15 +1108,36 @@ class SettingsViewModel(
             }
         }
 
-        loadServerSettings()
+        val finalSettings = try {
+            repository.settings()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+        val finalUpdateState = try {
+            repository.updatesCheck().webUiUpdateState()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
         _state.update { current ->
-            if (current.serverUpdateState is WebUiUpdateState.UpdateAvailable) {
+            val resolvedUpdateState = finalUpdateState ?: current.serverUpdateState
+            if (resolvedUpdateState is WebUiUpdateState.UpdateAvailable) {
                 current.copy(
+                    serverSettings = finalSettings ?: current.serverSettings,
+                    serverUpdateState = resolvedUpdateState,
                     updateApplyPhase = ServerUpdateApplyPhase.Failed,
                     updateApplyMessage = "The update is taking longer than expected to finish. Try again in a moment.",
                 )
             } else {
-                current.copy(updateApplyPhase = ServerUpdateApplyPhase.Idle, updateApplyMessage = null)
+                current.copy(
+                    serverSettings = finalSettings ?: current.serverSettings,
+                    serverUpdateState = resolvedUpdateState,
+                    updateApplyPhase = ServerUpdateApplyPhase.Idle,
+                    updateApplyMessage = null,
+                )
             }
         }
     }
@@ -980,12 +1150,12 @@ class SettingsViewModel(
         _state.update { it.copy(forgetServer = null) }
     }
 
-    fun confirmForgetServer(onSignedOut: () -> Unit) {
+    fun confirmForgetServer() {
         val account = _state.value.forgetServer ?: return
         val wasActive = account.id == _state.value.serverSnapshot.activeServerId
         _state.update { it.copy(isForgettingServer = true, error = null) }
         viewModelScope.launch {
-            runCatching {
+            runSuspendCatching {
                 cacheMaintenanceRepository?.clearServer(account.urlString)
                 authRepository.forget(account.id)
             }
@@ -999,7 +1169,9 @@ class SettingsViewModel(
                             error = null,
                         )
                     }
-                    if (wasActive && authRepository.state.value !is AuthState.LoggedIn) onSignedOut()
+                    if (wasActive && authRepository.state.value !is AuthState.LoggedIn) {
+                        eventChannel.send(SettingsEvent.SignedOut)
+                    }
                 }
                 .onFailure { error ->
                     _state.update {
@@ -1017,7 +1189,7 @@ class SettingsViewModel(
         val name = profile.normalizedProfileName() ?: return
         viewModelScope.launch {
             _state.update { it.copy(isSavingDefaultProfile = true, error = null, notice = null) }
-            runCatching { repository.switchProfile(name) }
+            runSuspendCatching { repository.switchProfile(name) }
                 .onSuccess { response ->
                     val responseError = response.error?.trim()?.takeIf { it.isNotBlank() }
                     if (responseError != null) {
@@ -1064,7 +1236,7 @@ class SettingsViewModel(
         if (id.isBlank()) return
         viewModelScope.launch {
             _state.update { it.copy(isSavingDefaultModel = true, error = null, notice = null) }
-            runCatching { repository.saveDefaultModel(id) }
+            runSuspendCatching { repository.saveDefaultModel(id) }
                 .onSuccess { response ->
                     val responseError = response.error?.trim()?.takeIf { it.isNotBlank() }
                     if (responseError != null || response.ok == false) {
@@ -1170,7 +1342,7 @@ class SettingsViewModel(
 
         viewModelScope.launch {
             _state.update { it.copy(isCreatingProfile = true, profileCreateError = null, error = null, notice = null) }
-            runCatching {
+            runSuspendCatching {
                 repository.createProfile(
                     name = name,
                     cloneConfig = cloneConfig,
@@ -1221,7 +1393,7 @@ class SettingsViewModel(
         val repository = panelsRepository ?: return
         viewModelScope.launch {
             _state.update { it.copy(isLoadingLiveModels = true) }
-            runCatching { repository.modelsLive() }
+            runSuspendCatching { repository.modelsLive() }
                 .onSuccess { live ->
                     _state.update { it.copy(isLoadingLiveModels = false, models = overlayLiveModels(it.models, live)) }
                 }
@@ -1231,13 +1403,13 @@ class SettingsViewModel(
         }
     }
 
-    fun signOut(onSignedOut: () -> Unit) {
+    fun signOut() {
         viewModelScope.launch {
             _state.update { it.copy(isSigningOut = true, error = null) }
-            runCatching { authRepository.logout() }
+            runSuspendCatching { authRepository.logout() }
                 .onSuccess {
                     _state.update { it.copy(isSigningOut = false) }
-                    onSignedOut()
+                    eventChannel.send(SettingsEvent.SignedOut)
                 }
                 .onFailure { error -> _state.update { it.copy(isSigningOut = false, error = error.message) } }
         }
@@ -1245,6 +1417,7 @@ class SettingsViewModel(
 
 }
 
+private const val SETTINGS_SAVED_TRANSIENT_STATE = "settings_transient_state"
 const val DefaultServerHeaderColorHex = "#FFD700"
 
 val ServerHeaderColorPresets = listOf(

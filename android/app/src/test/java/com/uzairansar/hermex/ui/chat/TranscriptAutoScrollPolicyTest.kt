@@ -80,4 +80,26 @@ class TranscriptAutoScrollPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun oversizedLastMessageIsNotAtBottomUntilItsEndIsVisible() {
+        assertFalse(
+            isTranscriptBottomVisible(
+                totalItemsCount = 4,
+                lastVisibleIndex = 3,
+                lastVisibleOffset = 120,
+                lastVisibleSize = 1_200,
+                viewportEndOffset = 900,
+            ),
+        )
+        assertTrue(
+            isTranscriptBottomVisible(
+                totalItemsCount = 4,
+                lastVisibleIndex = 3,
+                lastVisibleOffset = -300,
+                lastVisibleSize = 1_200,
+                viewportEndOffset = 900,
+            ),
+        )
+    }
 }

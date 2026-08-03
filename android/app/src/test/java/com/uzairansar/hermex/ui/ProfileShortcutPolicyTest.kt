@@ -2,6 +2,7 @@ package com.uzairansar.hermex.ui
 
 import com.uzairansar.hermex.core.model.ProfileSummary
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class ProfileShortcutPolicyTest {
@@ -23,5 +24,15 @@ class ProfileShortcutPolicyTest {
             ProfileSummary(name = "default"),
             ProfileSummary(name = "review"),
         ), 2).map { it.id })
+    }
+
+    @Test
+    fun javaHashCollisionsStillProduceDistinctShortcutIds() {
+        val specs = ProfileShortcutPolicy.specs(
+            listOf(ProfileSummary(name = "Aa"), ProfileSummary(name = "BB")),
+            maximumCount = 2,
+        )
+
+        assertNotEquals(specs[0].id, specs[1].id)
     }
 }

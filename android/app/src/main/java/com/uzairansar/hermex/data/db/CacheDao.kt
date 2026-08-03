@@ -50,8 +50,11 @@ interface CacheDao {
     @Query("DELETE FROM cached_messages WHERE expiresAtEpochMillis <= :now")
     suspend fun deleteExpiredMessages(now: Long)
 
-    @Query("SELECT cacheKey FROM cached_messages ORDER BY cachedAtEpochMillis DESC LIMIT -1 OFFSET :keep")
-    suspend fun oldMessageKeysBeyond(keep: Int): List<String>
+    @Query("SELECT DISTINCT serverUrl FROM cached_messages")
+    suspend fun messageServerUrls(): List<String>
+
+    @Query("SELECT cacheKey FROM cached_messages WHERE serverUrl = :serverUrl ORDER BY cachedAtEpochMillis DESC LIMIT -1 OFFSET :keep")
+    suspend fun oldMessageKeysBeyond(serverUrl: String, keep: Int): List<String>
 
     @Query("UPDATE cached_sessions SET title = :title WHERE serverUrl = :serverUrl AND sessionId = :sessionId")
     suspend fun updateSessionTitle(serverUrl: String, sessionId: String, title: String)
@@ -121,8 +124,10 @@ interface CacheDao {
     suspend fun maintenance(now: Long, maxMessages: Int = 5_000) {
         deleteExpiredSessions(now)
         deleteExpiredMessages(now)
-        val oldKeys = oldMessageKeysBeyond(maxMessages)
-        oldKeys.chunked(BIND_CHUNK_SIZE).forEach { deleteMessagesByKeys(it) }
+        messageServerUrls().forEach { serverUrl ->
+            val oldKeys = oldMessageKeysBeyond(serverUrl, maxMessages)
+            oldKeys.chunked(BIND_CHUNK_SIZE).forEach { deleteMessagesByKeys(it) }
+        }
     }
 
     companion object {

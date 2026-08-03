@@ -4,6 +4,7 @@ import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
+import java.net.InetAddress
 
 fun requireAllowedServerTransport(url: HttpUrl) {
     if (url.isHttps || isPrivateNetworkHost(url.host)) return
@@ -44,6 +45,20 @@ internal fun isPrivateNetworkHost(host: String): Boolean {
     }
 
     if (normalized == "::1") return true
+    if (':' in normalized) {
+        val literalAddress = runCatching { InetAddress.getByName(normalized) }.getOrNull()
+        if (literalAddress != null) {
+            if (
+                literalAddress.isLoopbackAddress ||
+                literalAddress.isLinkLocalAddress ||
+                literalAddress.isSiteLocalAddress
+            ) {
+                return true
+            }
+            val bytes = literalAddress.address
+            if (bytes.size == 16 && bytes[0].toInt() and 0xfe == 0xfc) return true
+        }
+    }
     val firstIpv6Group = normalized.substringBefore(':').toIntOrNull(16) ?: return false
     return firstIpv6Group in 0xfc00..0xfdff || firstIpv6Group in 0xfe80..0xfebf
 }

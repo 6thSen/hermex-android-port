@@ -7,10 +7,6 @@
     <string name="shortcut_new_session_long">새 세션 시작</string>
     <string name="shortcut_new_voice_short">음성 입력</string>
     <string name="shortcut_new_voice_long">음성 입력</string>
-    <string name="shortcut_panels_short">작업</string>
-    <string name="shortcut_panels_long">메모리</string>
-    <string name="shortcut_settings_short">설정</string>
-    <string name="shortcut_settings_long">설정</string>
     <string name="widget_description">새 채팅</string>
     <string name="widget_subtitle">Jump back into your agent workspace.</string>
     <string name="widget_open_sessions">세션</string>

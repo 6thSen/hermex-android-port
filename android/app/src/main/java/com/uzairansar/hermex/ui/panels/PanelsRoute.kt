@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,9 +57,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -128,6 +135,10 @@ fun PanelsRoute(
     val focusedSection = initialSection.normalizedPanelSection()
     val headerTitle = focusedSection?.panelTitle() ?: "Server Panels"
     val headerSubtitle = focusedSection?.let { "Server Panels" } ?: "Insights, tasks, skills, and memory"
+
+    LaunchedEffect(viewModel) {
+        viewModel.refresh()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -367,7 +378,7 @@ fun PanelsRoute(
             containerColor = Color.Transparent,
             onDismissRequest = viewModel::dismissDeleteCron,
             title = { Text(localizedString("Delete task?")) },
-            text = { Text("Delete ${job.displayName}? This cannot be undone.") },
+            text = { Text(job.displayName) },
             confirmButton = {
                 TextButton(onClick = viewModel::confirmDeleteCron, enabled = !state.isMutating) { Text(localizedString("Delete")) }
             },
@@ -466,6 +477,10 @@ private fun FocusedInsightsPanel(
                             if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
                             else Color.Transparent,
                         )
+                        .semantics {
+                            role = Role.Tab
+                            this.selected = selected
+                        }
                         .clickable { onTimeframeSelected(timeframe) }
                         .padding(horizontal = 4.dp, vertical = 10.dp),
                     contentAlignment = Alignment.Center,
@@ -974,7 +989,7 @@ private fun CronRow(
                 overflow = TextOverflow.Ellipsis,
             )
             StatusBadge(
-                text = job.statusLabel(runningElapsed),
+                text = localizedString(job.statusLabel(runningElapsed)),
                 color = job.statusColor(runningElapsed),
             )
         }
@@ -1008,7 +1023,7 @@ private fun CronRow(
                 HermexPillButton(localizedString("Details"), onDetails, enabled = !isMutating, filled = true)
                 HermexPillButton(localizedString("Edit"), onEdit, enabled = !isMutating)
                 HermexPillButton(localizedString("Run"), onRun, enabled = !isMutating)
-                HermexPillButton(if (job.isPaused) "Resume" else "Pause", onPauseResume, enabled = !isMutating)
+                HermexPillButton(localizedString(if (job.isPaused) "Resume" else "Pause"), onPauseResume, enabled = !isMutating)
                 HermexPillButton(localizedString("Output"), onOutput, enabled = !isMutating)
                 HermexPillButton(localizedString("Delete"), onDelete, enabled = !isMutating)
             }
@@ -1073,7 +1088,7 @@ private fun TaskDetailSheet(
                         )
                     }
                 }
-                StatusBadge(job.statusLabel(runningElapsed), job.statusColor(runningElapsed))
+                StatusBadge(localizedString(job.statusLabel(runningElapsed)), job.statusColor(runningElapsed))
                 HermexIconButton(
                     label = localizedString("Close task details"),
                     symbol = "×",
@@ -1089,7 +1104,7 @@ private fun TaskDetailSheet(
             ) {
                 HermexPillButton(localizedString("Refresh"), onRefreshOutput, enabled = !isLoadingOutput)
                 HermexPillButton(localizedString("Run Now"), onRun, enabled = !isMutating)
-                HermexPillButton(if (job.isPaused) "Resume" else "Pause", onPauseResume, enabled = !isMutating)
+                HermexPillButton(localizedString(if (job.isPaused) "Resume" else "Pause"), onPauseResume, enabled = !isMutating)
                 HermexPillButton(localizedString("Edit"), onEdit, enabled = !isMutating)
                 HermexPillButton(localizedString("Delete"), onDelete, enabled = !isMutating)
                 HermexPillButton(localizedString("Done"), onDismiss, enabled = true, filled = true)
@@ -1482,7 +1497,7 @@ private fun TaskEditorDialog(
         shape = HermexGlassShape,
         containerColor = Color.Transparent,
         onDismissRequest = onDismiss,
-        title = { Text(if (draft.isEditing) "Edit Task" else "New Task") },
+        title = { Text(localizedString(if (draft.isEditing) "Edit Task" else "New Task")) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1554,7 +1569,7 @@ private fun TaskEditorDialog(
                 onClick = onSave,
                 enabled = !isMutating && draft.prompt.isNotBlank() && draft.schedule.isNotBlank(),
             ) {
-                Text(if (draft.isEditing) "Save" else "Create")
+                Text(localizedString(if (draft.isEditing) "Save" else "Create"))
             }
         },
         dismissButton = {
@@ -1691,7 +1706,7 @@ private fun SkillRow(
                     enabled = !isMutating && !isToggling,
                     modifier = Modifier
                         .padding(top = 2.dp)
-                        .semantics { contentDescription = "${skill.skillDisplayName} enabled" }
+                        .semantics { contentDescription = skill.skillDisplayName }
                         .graphicsLayer(scaleX = 0.8f, scaleY = 0.8f),
                     colors = SwitchDefaults.colors(
                         checkedTrackColor = Color(0xFF34C759),
@@ -1769,7 +1784,9 @@ private fun SkillDetailSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val sheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.9f
+    val density = LocalDensity.current
+    val windowHeight = LocalWindowInfo.current.containerSize.height
+    val sheetHeight = with(density) { windowHeight.toDp() } * 0.9f
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1958,6 +1975,9 @@ private fun FocusedMemorySection(
     isSaving: Boolean,
     onEdit: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val localizedSectionTitle = localizedString(section.title)
+    val editDescription = localizedStringFormat("Edit %@", localizedSectionTitle)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -1971,15 +1991,21 @@ private fun FocusedMemorySection(
                 colorFilter = ColorFilter.tint(PanelSecondaryText),
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(section.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(localizedSectionTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 modifiedAt?.let {
-                    Text("Modified ${it.relativeTimeAgoText()}", style = MaterialTheme.typography.bodySmall, color = PanelSecondaryText)
+                    Text(
+                        "${localizedString("Modified")}: ${it.relativeTimeAgoText(context)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PanelSecondaryText,
+                    )
                 }
             }
             TextButton(
                 onClick = onEdit,
                 enabled = !isSaving,
-                modifier = Modifier.semantics { contentDescription = "Edit ${section.title}" },
+                modifier = Modifier.semantics {
+                    contentDescription = editDescription
+                },
             ) {
                 Text("✎", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
             }
@@ -2007,6 +2033,8 @@ private fun MemorySectionSummary(
     isSaving: Boolean,
     onEdit: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val localizedSectionTitle = localizedString(section.title)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2028,12 +2056,12 @@ private fun MemorySectionSummary(
                 modifier = Modifier.size(18.dp),
                 colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface),
             )
-            Text(section.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = PanelPrimaryText)
-            HermexPillButton("Edit ${section.title}", onEdit, enabled = !isSaving)
+            Text(localizedSectionTitle, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = PanelPrimaryText)
+            HermexPillButton(localizedStringFormat("Edit %@", localizedSectionTitle), onEdit, enabled = !isSaving)
         }
         modifiedAt?.let {
             Text(
-                "Modified ${it.relativeTimeAgoText()}",
+                "${localizedString("Modified")}: ${it.relativeTimeAgoText(context)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
@@ -2112,6 +2140,7 @@ private fun MemoryEditSheet(
 
 @Composable
 private fun ProjectContextPanel(memory: MemoryResponse, content: String) {
+    val context = LocalContext.current
     PanelSubsection(localizedString("Project Context")) {
         TextChip("Read-only")
         if (memory.projectContextShadowed == true) {
@@ -2123,10 +2152,10 @@ private fun ProjectContextPanel(memory: MemoryResponse, content: String) {
         }
         MarkdownText(content)
         val detail = listOfNotNull(
-            memory.projectContextName?.takeIf { it.isNotBlank() }?.let { "Name: $it" },
-            memory.projectContextWorkspace?.takeIf { it.isNotBlank() }?.let { "Workspace: $it" },
-            memory.projectContextPath?.takeIf { it.isNotBlank() }?.let { "Path: $it" },
-            memory.projectContextMtime?.let { "Modified: ${it.relativeTimeAgoText()}" },
+            memory.projectContextName?.takeIf { it.isNotBlank() }?.let { "${localizedString("Name")}: $it" },
+            memory.projectContextWorkspace?.takeIf { it.isNotBlank() }?.let { "${localizedString("Workspace")}: $it" },
+            memory.projectContextPath?.takeIf { it.isNotBlank() }?.let { "${localizedString("Path")}: $it" },
+            memory.projectContextMtime?.let { "${localizedString("Modified")}: ${it.relativeTimeAgoText(context)}" },
         )
         detail.forEach {
             Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
@@ -2162,8 +2191,8 @@ private fun PanelCard(title: String, content: @Composable () -> Unit) {
 private val InsightsModelBreakdown.displayShare: Int?
     get() = tokenShare ?: sessionShare ?: costShare
 
-private fun formattedTokens(value: Int): String =
-    String.format(Locale.US, "%,d", value)
+private fun formattedTokens(value: Number): String =
+    String.format(Locale.US, "%,d", value.toLong())
 
 private fun formattedCost(value: Double): String =
     if (value == 0.0) "$0" else "$${String.format(Locale.US, "%.4f", value)}"
@@ -2221,17 +2250,14 @@ private fun MemoryResponse?.modifiedAtForSection(section: String): Double? {
     }
 }
 
-private fun Double.relativeTimeAgoText(nowMillis: Long = System.currentTimeMillis()): String {
+private fun Double.relativeTimeAgoText(context: android.content.Context, nowMillis: Long = System.currentTimeMillis()): String {
     val timestampMillis = if (this > 10_000_000_000.0) this.toLong() else (this * 1000.0).toLong()
-    val seconds = ((nowMillis - timestampMillis) / 1000L).coerceAtLeast(0L)
-    return when {
-        seconds < 5L -> "just now"
-        seconds < 60L -> "${seconds}s ago"
-        seconds < 3_600L -> "${seconds / 60L}m ago"
-        seconds < 86_400L -> "${seconds / 3_600L}h ago"
-        seconds < 604_800L -> "${seconds / 86_400L}d ago"
-        else -> "${seconds / 604_800L}w ago"
-    }
+    return android.text.format.DateUtils.getRelativeTimeSpanString(
+        timestampMillis,
+        nowMillis,
+        android.text.format.DateUtils.MINUTE_IN_MILLIS,
+        android.text.format.DateUtils.FORMAT_ABBREV_RELATIVE,
+    ).toString()
 }
 
 private fun JsonElement?.panelBodyText(): String? {

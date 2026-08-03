@@ -1064,6 +1064,7 @@
     <string name="l10n_7bab0e5ded8bc6f0" formatted="false">"サーバが要求するとおりに正確にモデルIDを入力してください。"</string>
     <string name="l10n_1d4d43cc6f3a833e" formatted="false">"完了"</string>
     <string name="l10n_9d051101e772ba11" formatted="false">"作業ツリーはクリーンです。"</string>
+    <string name="l10n_c3447e7954fa5698" formatted="false">"コードブロックの行を折り返す"</string>
     <string name="l10n_650c8b9689349c6f" formatted="false">"Androidとショートカット"</string>
     <string name="l10n_4995a18a7feb07d3" formatted="false">"Androidの通知が許可されています。"</string>
     <string name="l10n_6ffbb15ebde8242f" formatted="false">"Androidの通知が無効です。"</string>
@@ -1075,12 +1076,16 @@
     <string name="l10n_e926bfb2bfdf0fb3" formatted="false">"%lld 件のアーカイブ済みセッション"</string>
     <string name="l10n_a91bcce893b5de90" formatted="false">"常に"</string>
     <string name="l10n_b52b36b7269fbfc5" formatted="false">"戻る"</string>
+    <string name="l10n_9d0de6c0ee2fc2e7" formatted="false">"?????????????????????????????"</string>
     <string name="l10n_2df57c166c21b929" formatted="false">"選択項目をコミット"</string>
     <string name="l10n_8fdb5e04fadec4fa" formatted="false">"コンテキストウィンドウ"</string>
+    <string name="l10n_c2b5cadf49d51715" formatted="false">"????????????????????"</string>
+    <string name="l10n_98de890b6fcd67b1" formatted="false">"???????????????????????"</string>
     <string name="l10n_53577bb5df0ee9b6" formatted="false">"拒否"</string>
     <string name="l10n_dc3decbb93847518" formatted="false">"詳細"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"破棄"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"ファイルの変更"</string>
+    <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex ??????????????????????????????????????????????????????? Cookie?????????????????"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"リモート画像を読み込む"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"名前: 値"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"開く"</string>
@@ -1088,12 +1093,15 @@
     <string name="l10n_bfa710ae1583142c" formatted="false">"保留中の確認: %lld"</string>
     <string name="l10n_d325fcd919384f39" formatted="false">"キューに追加"</string>
     <string name="l10n_409a421432653b85" formatted="false">"音声メモを録音中"</string>
+    <string name="l10n_fdc37d196084ba7a" formatted="false">"????????????"</string>
     <string name="l10n_6e617e4fc9da3de9" formatted="false">"応答"</string>
     <string name="l10n_29251fb4a89acc46" formatted="false">"メモリを保存中..."</string>
+    <string name="l10n_5c36abc75309eaa9" formatted="false">"?????????????????"</string>
     <string name="l10n_1dfa53963abca0f4" formatted="false">"音声メモを送信中..."</string>
     <string name="l10n_ed2a7acac11f4394" formatted="false">"サーバーURL、カスタムヘッダー、CookieはAndroidの暗号化ストレージに保存されます。"</string>
     <string name="l10n_09ca55ca52d207f2" formatted="false">"共有"</string>
     <string name="l10n_12f98a70d6319400" formatted="false">"応答の抜粋を表示"</string>
+    <string name="l10n_7cdb45a0a913f5a9" formatted="false">"?????????????"</string>
     <string name="l10n_ca6d0e3aaa7d6cc0" formatted="false">"ステージ"</string>
     <string name="l10n_3e44c920427e845d" formatted="false">"切り替え"</string>
     <string name="l10n_7298d7ed988425fb" formatted="false">"ステージ解除"</string>

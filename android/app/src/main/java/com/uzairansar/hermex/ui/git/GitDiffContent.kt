@@ -29,7 +29,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.uzairansar.hermex.core.model.DiffHunk
@@ -130,7 +129,6 @@ private fun HermexDiffHunkHeader(
             .clickable(onClick = onToggle)
             .semantics {
                 contentDescription = hunk.displayLabel
-                stateDescription = if (collapsed) "Collapsed" else "Expanded"
             }
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
             .padding(horizontal = 10.dp, vertical = 7.dp),

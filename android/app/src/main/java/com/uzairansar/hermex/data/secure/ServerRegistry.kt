@@ -30,7 +30,9 @@ data class ServerRegistrySnapshot(
 class ServerRegistry(
     private val secretStore: SecretStore,
 ) {
-    private val _snapshot = MutableStateFlow(load())
+    private val loadResult = load()
+    val loadFailure: Throwable? = loadResult.exceptionOrNull()
+    private val _snapshot = MutableStateFlow(loadResult.getOrDefault(ServerRegistrySnapshot()))
     val snapshot: StateFlow<ServerRegistrySnapshot> = _snapshot
 
     fun activeServer(): ServerAccount? = _snapshot.value.servers.firstOrNull { it.id == _snapshot.value.activeServerId }
@@ -41,6 +43,7 @@ class ServerRegistry(
         initials: String? = null,
         headerLogoColorHex: String? = null,
     ): ServerAccount {
+        ensureWritable()
         val id = normalizedId(url)
         var result: ServerAccount? = null
         _snapshot.update { current ->
@@ -75,6 +78,7 @@ class ServerRegistry(
     }
 
     fun setActive(id: String) {
+        ensureWritable()
         _snapshot.update { current ->
             if (current.servers.any { it.id == id }) current.copy(activeServerId = id) else current
         }
@@ -82,6 +86,7 @@ class ServerRegistry(
     }
 
     fun update(account: ServerAccount): ServerAccount? {
+        ensureWritable()
         var updatedAccount: ServerAccount? = null
         _snapshot.update { current ->
             if (current.servers.none { it.id == account.id }) return@update current
@@ -98,6 +103,7 @@ class ServerRegistry(
     }
 
     fun remove(id: String) {
+        ensureWritable()
         _snapshot.update { current ->
             val remaining = current.servers.filterNot { it.id == id }
             current.copy(
@@ -114,6 +120,7 @@ class ServerRegistry(
         secretStore.getString(loggedOutKey(serverId)) == LOGGED_OUT_VALUE
 
     fun setLoggedOut(serverId: String, loggedOut: Boolean) {
+        ensureWritable()
         if (loggedOut) {
             secretStore.putString(loggedOutKey(serverId), LOGGED_OUT_VALUE)
         } else {
@@ -123,17 +130,30 @@ class ServerRegistry(
 
     fun customHeaders(serverId: String): List<CustomHeader> =
         secretStore.getString(customHeadersKey(serverId))
-            ?.let { runCatching { HermesJson.decodeFromString<List<CustomHeader>>(it) }.getOrNull() }
+            ?.let { encoded -> HermesJson.decodeFromString<List<CustomHeader>>(encoded) }
             .orEmpty()
 
     fun saveCustomHeaders(serverId: String, headers: List<CustomHeader>) {
+        ensureWritable()
         secretStore.putString(customHeadersKey(serverId), HermesJson.encodeToString(headers.sanitized()))
     }
 
-    private fun load(): ServerRegistrySnapshot =
-        secretStore.getString(KEY)
-            ?.let { runCatching { HermesJson.decodeFromString<ServerRegistrySnapshot>(it) }.getOrNull() }
-            ?: ServerRegistrySnapshot()
+    private fun load(): Result<ServerRegistrySnapshot> = runCatching {
+        val encoded = secretStore.getString(KEY) ?: return@runCatching ServerRegistrySnapshot()
+        HermesJson.decodeFromString<ServerRegistrySnapshot>(encoded).also { snapshot ->
+            snapshot.servers.forEach { server ->
+                secretStore.getString(customHeadersKey(server.id))?.let { headers ->
+                    HermesJson.decodeFromString<List<CustomHeader>>(headers)
+                }
+            }
+        }
+    }
+
+    private fun ensureWritable() {
+        check(loadFailure == null) {
+            "The saved server registry is damaged. Reset secure data from the recovery screen."
+        }
+    }
 
     private fun persist(snapshot: ServerRegistrySnapshot) {
         secretStore.putString(KEY, HermesJson.encodeToString(snapshot))

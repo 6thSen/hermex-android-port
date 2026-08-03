@@ -1064,6 +1064,7 @@
     <string name="l10n_7bab0e5ded8bc6f0" formatted="false">"请完全按照服务器要求的格式输入模型 ID。"</string>
     <string name="l10n_1d4d43cc6f3a833e" formatted="false">"完成"</string>
     <string name="l10n_9d051101e772ba11" formatted="false">"工作树是干净的。"</string>
+    <string name="l10n_c3447e7954fa5698" formatted="false">"代码块换行"</string>
     <string name="l10n_650c8b9689349c6f" formatted="false">"Android 与快捷指令"</string>
     <string name="l10n_4995a18a7feb07d3" formatted="false">"已允许 Android 通知。"</string>
     <string name="l10n_6ffbb15ebde8242f" formatted="false">"已禁用 Android 通知。"</string>
@@ -1075,12 +1076,16 @@
     <string name="l10n_e926bfb2bfdf0fb3" formatted="false">"%lld 个已归档会话"</string>
     <string name="l10n_a91bcce893b5de90" formatted="false">"始终"</string>
     <string name="l10n_b52b36b7269fbfc5" formatted="false">"返回"</string>
+    <string name="l10n_9d0de6c0ee2fc2e7" formatted="false">"??????????"</string>
     <string name="l10n_2df57c166c21b929" formatted="false">"提交所选项"</string>
     <string name="l10n_8fdb5e04fadec4fa" formatted="false">"上下文窗口"</string>
+    <string name="l10n_c2b5cadf49d51715" formatted="false">"??????????"</string>
+    <string name="l10n_98de890b6fcd67b1" formatted="false">"???????????"</string>
     <string name="l10n_53577bb5df0ee9b6" formatted="false">"拒绝"</string>
     <string name="l10n_dc3decbb93847518" formatted="false">"详细信息"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"放弃"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"文件更改"</string>
+    <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex ??????????????????????????????? Cookie ???????"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"加载远程图片"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"名称：值"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"打开"</string>
@@ -1088,12 +1093,15 @@
     <string name="l10n_bfa710ae1583142c" formatted="false">"待处理提示：%lld"</string>
     <string name="l10n_d325fcd919384f39" formatted="false">"加入队列"</string>
     <string name="l10n_409a421432653b85" formatted="false">"正在录制语音备注"</string>
+    <string name="l10n_fdc37d196084ba7a" formatted="false">"??????"</string>
     <string name="l10n_6e617e4fc9da3de9" formatted="false">"回复"</string>
     <string name="l10n_29251fb4a89acc46" formatted="false">"正在保存记忆..."</string>
+    <string name="l10n_5c36abc75309eaa9" formatted="false">"??????????"</string>
     <string name="l10n_1dfa53963abca0f4" formatted="false">"正在发送语音备注..."</string>
     <string name="l10n_ed2a7acac11f4394" formatted="false">"服务器 URL、自定义标头和 Cookie 会存储在 Android 加密存储空间中。"</string>
     <string name="l10n_09ca55ca52d207f2" formatted="false">"分享"</string>
     <string name="l10n_12f98a70d6319400" formatted="false">"显示回复摘要"</string>
+    <string name="l10n_7cdb45a0a913f5a9" formatted="false">"?????"</string>
     <string name="l10n_ca6d0e3aaa7d6cc0" formatted="false">"暂存"</string>
     <string name="l10n_3e44c920427e845d" formatted="false">"切换"</string>
     <string name="l10n_7298d7ed988425fb" formatted="false">"取消暂存"</string>

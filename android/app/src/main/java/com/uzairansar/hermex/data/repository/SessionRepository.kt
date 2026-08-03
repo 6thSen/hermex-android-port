@@ -17,6 +17,7 @@ import com.uzairansar.hermex.data.db.CacheDao
 import com.uzairansar.hermex.data.db.CachedSessionEntity
 import com.uzairansar.hermex.data.db.ServerCacheOwnership
 import kotlinx.coroutines.CancellationException
+import java.io.File
 
 data class SessionPage(
     val sessions: List<SessionSummary>,
@@ -32,6 +33,7 @@ class SessionRepository(
     private val client: HermesApiClient,
     private val cacheDao: CacheDao,
     private val cacheOwnership: ServerCacheOwnership,
+    private val exportDirectoryProvider: (() -> File)? = null,
 ) {
     private val serverUrl = client.baseUrl.toString()
 
@@ -89,10 +91,9 @@ class SessionRepository(
     }
 
     suspend fun clear(sessionId: String): SessionClearResponse {
-        val cacheGeneration = cacheOwnership.generation(serverUrl)
         val response = client.clearSession(sessionId)
         if (response.ok != false && response.error.isNullOrBlank()) {
-            cacheOwnership.writeIfCurrent(serverUrl, cacheGeneration) {
+            cacheOwnership.invalidateAndClear(serverUrl) {
                 cacheDao.deleteCachedSessionMessages(serverUrl, sessionId)
             }
         }
@@ -100,10 +101,9 @@ class SessionRepository(
     }
 
     suspend fun delete(sessionId: String): SessionMutationResponse {
-        val cacheGeneration = cacheOwnership.generation(serverUrl)
         val response = client.deleteSession(sessionId)
         if (response.isSuccessfulMutation()) {
-            cacheOwnership.writeIfCurrent(serverUrl, cacheGeneration) {
+            cacheOwnership.invalidateAndClear(serverUrl) {
                 cacheDao.purgeSession(serverUrl, sessionId)
             }
         }
@@ -155,7 +155,7 @@ class SessionRepository(
     }
 
     suspend fun exportSession(sessionId: String, format: SessionExportFormat, fallbackTitle: String?): SessionExportFile =
-        client.exportSession(sessionId, format, fallbackTitle)
+        client.exportSession(sessionId, format, fallbackTitle, exportDirectoryProvider?.invoke())
 }
 
 private const val ARCHIVED_SYNC_LIMIT = 2_000

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.CookieJar
+import okhttp3.Dns
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -22,6 +23,7 @@ import okhttp3.Response
 import okio.Buffer
 import java.io.File
 import java.io.IOException
+import java.net.InetAddress
 import kotlin.time.Duration.Companion.seconds
 
 class HermesApiClient(
@@ -31,6 +33,7 @@ class HermesApiClient(
     private val customHeaders: () -> List<CustomHeader> = { emptyList() },
     private val onUnauthorized: (HttpUrl) -> Unit = {},
     private val onProfileChanged: suspend (HttpUrl, String) -> Unit = { _, _ -> },
+    private val publicMediaDns: Dns = PublicNetworkDns,
 ) {
     private val jsonMediaType = "application/json".toMediaType()
     @OptIn(ExperimentalSerializationApi::class)
@@ -44,9 +47,9 @@ class HermesApiClient(
         .addNetworkInterceptor(ServerTransportPolicyInterceptor())
         .addNetworkInterceptor(SameOriginCustomHeaderInterceptor(baseUrl, customHeaders))
         .build()
-    private val publicMediaClient: OkHttpClient = client.newBuilder()
+    private val publicMediaClient: OkHttpClient = this.client.newBuilder()
         .cookieJar(CookieJar.NO_COOKIES)
-        .addNetworkInterceptor(ServerTransportPolicyInterceptor())
+        .dns(publicMediaDns)
         .build()
 
     init {
@@ -77,26 +80,48 @@ class HermesApiClient(
     suspend fun sessionYolo(sessionId: String): SessionYoloResponse = get(Endpoint.SessionYolo(sessionId))
     suspend fun setSessionYolo(sessionId: String, enabled: Boolean): SessionYoloResponse =
         post(Endpoint.SessionYolo(null), SessionYoloRequest(sessionId, enabled))
-    suspend fun exportSession(sessionId: String, format: SessionExportFormat, fallbackTitle: String? = null): SessionExportFile {
-        val request = requestBuilder(Endpoint.ExportSession(sessionId, format.wireValue))
-            .get()
-            .header("Accept", "*/*")
-            .build()
-        val response = executeDataWithHeaders(
-            client.newCall(request),
-            headers = listOf("Content-Disposition"),
-            maxResponseBytes = MAX_BINARY_RESPONSE_BYTES,
-        )
-        return SessionExportFile(
-            data = response.bytes,
-            filename = sessionExportFilename(
+    suspend fun exportSession(
+        sessionId: String,
+        format: SessionExportFormat,
+        fallbackTitle: String? = null,
+        destinationDirectory: File? = null,
+    ): SessionExportFile {
+        val ownsDirectory = destinationDirectory == null
+        val directory = destinationDirectory ?: createTemporaryExportDirectory()
+        check(directory.mkdirs() || directory.isDirectory) { "Could not prepare the export directory." }
+        val temporaryFile = File.createTempFile("download-", ".tmp", directory)
+        try {
+            val request = requestBuilder(Endpoint.ExportSession(sessionId, format.wireValue))
+                .get()
+                .header("Accept", "*/*")
+                .build()
+            val response = executeFileWithHeaders(
+                client.newCall(request),
+                destination = temporaryFile,
+                headers = listOf("Content-Disposition"),
+                maxResponseBytes = MAX_BINARY_RESPONSE_BYTES,
+            )
+            val filename = sessionExportFilename(
                 contentDisposition = response.headers["Content-Disposition"],
                 fallbackTitle = fallbackTitle,
                 sessionId = sessionId,
                 format = format,
-            ),
-            mimeType = format.mimeType,
-        )
+            )
+            val exportedFile = File(directory, filename)
+            if (!temporaryFile.renameTo(exportedFile)) {
+                temporaryFile.copyTo(exportedFile, overwrite = true)
+                temporaryFile.delete()
+            }
+            return SessionExportFile(
+                file = exportedFile,
+                filename = filename,
+                mimeType = format.mimeType,
+            )
+        } catch (error: Throwable) {
+            temporaryFile.delete()
+            if (ownsDirectory) directory.delete()
+            throw error
+        }
     }
     suspend fun compressSession(sessionId: String, focusTopic: String? = null): SessionCompressResponse =
         post(Endpoint.CompressSession, CompressSessionRequest(sessionId, focusTopic), timeoutSeconds = 120)
@@ -127,6 +152,7 @@ class HermesApiClient(
     suspend fun submitGoal(
         sessionId: String,
         args: String,
+        workspace: String? = null,
         model: String? = null,
         modelProvider: String? = null,
         profile: String? = null,
@@ -135,6 +161,7 @@ class HermesApiClient(
         GoalRequest(
             sessionId = sessionId,
             args = args,
+            workspace = workspace,
             model = model,
             modelProvider = modelProvider,
             profile = profile,
@@ -161,12 +188,13 @@ class HermesApiClient(
             is TranscriptMediaSource.RemoteUrl -> remoteTranscriptMediaData(source.url)
         }
     suspend fun remoteTranscriptMediaData(url: HttpUrl): ByteArray {
+        val requestUrl = rebaseLoopbackMediaUrl(url, baseUrl)
         val request = Request.Builder()
-            .url(url)
+            .url(requestUrl)
             .get()
             .header("Accept", "*/*")
             .build()
-        val callClient = if (url.isSameOriginAs(baseUrl)) client else publicMediaClient
+        val callClient = if (requestUrl.isSameOriginAs(baseUrl)) client else publicMediaClient
         return executeData(callClient.newCall(request), MAX_REMOTE_MEDIA_RESPONSE_BYTES)
     }
     suspend fun models(): ModelCatalogResponse = get(Endpoint.Models)
@@ -230,9 +258,15 @@ class HermesApiClient(
     suspend fun memory(): MemoryResponse = get(Endpoint.Memory)
     suspend fun writeMemory(section: String, content: String): MemoryWriteResponse = post(Endpoint.MemoryWrite, MemoryWriteRequest(section, content))
     suspend fun gitInfo(sessionId: String): GitInfoResponse = get(Endpoint.GitInfo(sessionId))
-    suspend fun gitStatus(sessionId: String): GitStatusResponse = get(Endpoint.GitStatus(sessionId))
+    suspend fun gitStatus(sessionId: String): GitStatusResponse {
+        val response: GitStatusEnvelope = get(Endpoint.GitStatus(sessionId))
+        return response.git ?: throw ApiError.InvalidResponse(response.error ?: "The server did not return Git status.")
+    }
     suspend fun gitBranches(sessionId: String): GitBranchesResponse = get(Endpoint.GitBranches(sessionId))
-    suspend fun gitDiff(sessionId: String, path: String, kind: String = "unstaged"): GitDiffResponse = get(Endpoint.GitDiff(sessionId, path, kind))
+    suspend fun gitDiff(sessionId: String, path: String, kind: String = "unstaged"): GitDiffResponse {
+        val response: GitDiffEnvelope = get(Endpoint.GitDiff(sessionId, path, kind))
+        return response.diff ?: throw ApiError.InvalidResponse(response.error ?: "The server did not return a Git diff.")
+    }
     suspend fun gitFetch(sessionId: String): GitRemoteActionResponse = post(Endpoint.GitFetch, GitSessionRequest(sessionId))
     suspend fun gitPull(sessionId: String): GitRemoteActionResponse = post(Endpoint.GitPull, GitSessionRequest(sessionId))
     suspend fun gitPush(sessionId: String): GitRemoteActionResponse = post(Endpoint.GitPush, GitSessionRequest(sessionId))
@@ -285,6 +319,7 @@ class HermesApiClient(
             method = "POST",
             encodedBody = json.encodeToString(TtsSynthesisRequest(text, voice)).toRequestBody(jsonMediaType),
             accept = "audio/mpeg",
+            maxResponseBytes = MAX_MEDIA_RESPONSE_BYTES,
         )
 
     suspend fun upload(sessionId: String, file: File, mimeType: String?): UploadResponse {
@@ -411,8 +446,64 @@ class HermesApiClient(
         }
     }
 
+    private suspend fun executeFileWithHeaders(
+        call: Call,
+        destination: File,
+        headers: List<String>,
+        maxResponseBytes: Long,
+    ): FileDownloadResponse {
+        val response = call.awaitResponse()
+        try {
+            return withContext(Dispatchers.IO) {
+                if (response.code == 401 && response.request.url.isSameOriginAs(baseUrl)) {
+                    onUnauthorized(baseUrl)
+                    throw ApiError.Unauthorized
+                }
+                if (!response.isSuccessful) {
+                    val body = response.body.readLimited(MAX_ERROR_RESPONSE_BYTES, failOnOverflow = false)
+                    val suffix = if (body.truncated) "\n[response truncated]" else ""
+                    throw ApiError.Http(response.code, body.bytes.decodeToString() + suffix)
+                }
+                if (response.body.contentLength() > maxResponseBytes) {
+                    throw ApiError.ResponseTooLarge(maxResponseBytes)
+                }
+                var completed = false
+                try {
+                    var total = 0L
+                    response.body.byteStream().use { input ->
+                        destination.outputStream().buffered().use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                if (count == 0) continue
+                                total += count
+                                if (total > maxResponseBytes) throw ApiError.ResponseTooLarge(maxResponseBytes)
+                                output.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                    completed = true
+                } finally {
+                    if (!completed) destination.delete()
+                }
+                FileDownloadResponse(
+                    headers = headers.associateWith { name -> response.header(name) }
+                        .filterValues { value -> value != null }
+                        .mapValues { entry -> requireNotNull(entry.value) },
+                )
+            }
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { response.close() }
+        }
+    }
+
     private data class RawResponse(
         val bytes: ByteArray,
+        val headers: Map<String, String> = emptyMap(),
+    )
+
+    private data class FileDownloadResponse(
         val headers: Map<String, String> = emptyMap(),
     )
 
@@ -422,7 +513,7 @@ class HermesApiClient(
         private const val MAX_MEDIA_RESPONSE_BYTES = 20L * 1024L * 1024L
         private const val MAX_REMOTE_MEDIA_RESPONSE_BYTES = 16L * 1024L * 1024L
         private const val MAX_BINARY_RESPONSE_BYTES = 64L * 1024L * 1024L
-        private const val MAX_ERROR_RESPONSE_BYTES = 1L * 1024L * 1024L
+        private const val MAX_ERROR_RESPONSE_BYTES = 64L * 1024L
     }
 }
 
@@ -519,3 +610,33 @@ private fun String.replaceUnsafeFilenameCharacters(): String =
 
 private fun HttpUrl.isSameOriginAs(other: HttpUrl): Boolean =
     scheme == other.scheme && host.equals(other.host, ignoreCase = true) && port == other.port
+
+internal fun rebaseLoopbackMediaUrl(url: HttpUrl, serverBaseUrl: HttpUrl): HttpUrl {
+    if (!url.host.isLoopbackReferenceHost()) return url
+    val basePath = serverBaseUrl.encodedPath.trimEnd('/')
+    val mediaPath = url.encodedPath.trimStart('/')
+    val resolvedPath = if (basePath.isEmpty()) "/$mediaPath" else "$basePath/$mediaPath"
+    return serverBaseUrl.newBuilder()
+        .encodedPath(resolvedPath)
+        .encodedQuery(url.encodedQuery)
+        .fragment(url.fragment)
+        .build()
+}
+
+private fun createTemporaryExportDirectory(): File {
+    val root = File(System.getProperty("java.io.tmpdir") ?: ".")
+    val marker = File.createTempFile("hermex-session-export-", ".tmp", root)
+    check(marker.delete() && marker.mkdir()) { "Could not prepare the export directory." }
+    return marker
+}
+
+private fun String.isLoopbackReferenceHost(): Boolean {
+    val normalized = trim().trimEnd('.').lowercase()
+    if (normalized == "localhost" || normalized.endsWith(".localhost")) return true
+    val isAddressLiteral = ':' in normalized || normalized.all { it.isDigit() || it == '.' }
+    if (!isAddressLiteral) return false
+    return runCatching { InetAddress.getByName(normalized) }
+        .getOrNull()
+        ?.let { it.isLoopbackAddress || it.isAnyLocalAddress }
+        ?: false
+}

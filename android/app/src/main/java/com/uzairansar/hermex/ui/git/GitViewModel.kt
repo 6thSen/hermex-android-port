@@ -10,12 +10,17 @@ import com.uzairansar.hermex.core.model.GitDiffResponse
 import com.uzairansar.hermex.core.model.GitFileChange
 import com.uzairansar.hermex.core.model.GitMutationResponse
 import com.uzairansar.hermex.core.network.ApiError
+import com.uzairansar.hermex.core.runSuspendCatching
 import com.uzairansar.hermex.data.repository.GitRepository
+import com.uzairansar.hermex.ui.SavedStatePolicy
+import com.uzairansar.hermex.ui.setBoundedString
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 data class GitBranchOption(
@@ -74,8 +79,12 @@ class GitViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         GitUiState(
-            newBranchName = savedStateHandle?.get<String>(SAVED_NEW_BRANCH_NAME).orEmpty(),
-            commitMessage = savedStateHandle?.get<String>(SAVED_COMMIT_MESSAGE).orEmpty(),
+            newBranchName = savedStateHandle?.get<String>(SAVED_NEW_BRANCH_NAME)
+                ?.let { SavedStatePolicy.boundedInput(it) }
+                .orEmpty(),
+            commitMessage = savedStateHandle?.get<String>(SAVED_COMMIT_MESSAGE)
+                ?.let { SavedStatePolicy.boundedInput(it) }
+                .orEmpty(),
             pushAfterCommit = savedStateHandle?.get<Boolean>(SAVED_PUSH_AFTER_COMMIT) ?: false,
         ),
     )
@@ -99,16 +108,19 @@ class GitViewModel(
                     notice = if (clearNotice) null else it.notice,
                 )
             }
-            runCatching {
-                val status = repository.status(sessionId)
-                val branches = runCatching { repository.branches(sessionId) }.getOrNull()
-                status to branches
+            runSuspendCatching {
+                coroutineScope {
+                    val status = async { repository.status(sessionId) }
+                    val branches = async { runSuspendCatching { repository.branches(sessionId) }.getOrNull() }
+                    status.await() to branches.await()
+                }
             }
                 .onSuccess { (status, branches) ->
                     if (generation != refreshGeneration) return@onSuccess
                     val current = branches?.branches?.current ?: branches?.current ?: status.branch
                     val files = status.files.orEmpty()
                     val validPaths = files.mapNotNull { it.serverPath() }.toSet()
+                    val previousSelection = _state.value.selectedPath to _state.value.selectedKind
                     _state.update { previous ->
                         val selectedPath = previous.selectedPath?.takeIf { it in validPaths }
                         previous.copy(
@@ -121,10 +133,15 @@ class GitViewModel(
                             truncated = status.truncated == true,
                             selectedPaths = previous.selectedPaths.intersect(validPaths),
                             selectedPath = selectedPath,
-                            diff = if (selectedPath == null) null else previous.diff,
+                            diff = null,
                             isLoading = false,
                             error = status.error ?: if (clearError) null else previous.error,
                         )
+                    }
+                    if (status.error == null) {
+                        previousSelection.first
+                            ?.let { path -> files.firstOrNull { it.serverPath() == path } }
+                            ?.let(::selectFile)
                     }
                 }
                 .onFailure { error ->
@@ -135,8 +152,9 @@ class GitViewModel(
     }
 
     fun updateNewBranchName(value: String) {
-        savedStateHandle?.set(SAVED_NEW_BRANCH_NAME, value)
-        _state.update { it.copy(newBranchName = value, error = null) }
+        val boundedValue = SavedStatePolicy.boundedInput(value)
+        savedStateHandle?.setBoundedString(SAVED_NEW_BRANCH_NAME, boundedValue)
+        _state.update { it.copy(newBranchName = boundedValue, error = null) }
     }
 
     fun selectFile(file: GitFileChange, kind: String = if (file.staged == true) "staged" else "unstaged") {
@@ -144,7 +162,7 @@ class GitViewModel(
         diffJob?.cancel()
         diffJob = viewModelScope.launch {
             _state.update { it.copy(selectedPath = path, selectedKind = kind, diff = null, error = null) }
-            runCatching { repository.diff(sessionId, path, kind) }
+            runSuspendCatching { repository.diff(sessionId, path, kind) }
                 .onSuccess { diff ->
                     _state.update {
                         if (it.selectedPath == path && it.selectedKind == kind) {
@@ -181,8 +199,9 @@ class GitViewModel(
     }
 
     fun updateCommitMessage(value: String) {
-        savedStateHandle?.set(SAVED_COMMIT_MESSAGE, value)
-        _state.update { it.copy(commitMessage = value, messageWasTruncated = false) }
+        val boundedValue = SavedStatePolicy.boundedInput(value)
+        savedStateHandle?.setBoundedString(SAVED_COMMIT_MESSAGE, boundedValue)
+        _state.update { it.copy(commitMessage = boundedValue, messageWasTruncated = false) }
     }
 
     fun updatePushAfterCommit(value: Boolean) {
@@ -195,7 +214,14 @@ class GitViewModel(
     }
 
     fun unstageSelected() {
-        mutateSelected("Unstaged") { path -> repository.unstage(sessionId, listOf(path)) }
+        val state = _state.value
+        val file = state.files.firstOrNull { it.serverPath() == state.selectedPath && it.staged == true }
+        val path = file?.serverPath()
+        if (path == null) {
+            _state.update { it.copy(error = "Select a staged file to unstage.") }
+            return
+        }
+        mutate("Unstaged") { repository.unstage(sessionId, listOf(path)) }
     }
 
     fun stageSelectedOrAll() {
@@ -203,7 +229,9 @@ class GitViewModel(
     }
 
     fun unstageSelectedOrAll() {
-        mutateTargetPaths("Unstaged") { paths -> repository.unstage(sessionId, paths) }
+        mutateTargetPaths("Unstaged", predicate = { it.staged == true }) { paths ->
+            repository.unstage(sessionId, paths)
+        }
     }
 
     fun requestDiscardSelected() {
@@ -319,7 +347,7 @@ class GitViewModel(
         if (!beginMutation()) return
         viewModelScope.launch {
             val paths = _state.value.selectedPaths.toList()
-            runCatching {
+            runSuspendCatching {
                 if (paths.isEmpty()) {
                     repository.commitMessage(sessionId)
                 } else {
@@ -327,25 +355,33 @@ class GitViewModel(
                 }
             }
                 .onSuccess { response ->
+                    val responseError = response.failureMessage("The server could not generate a commit message.")
                     val suggested = response.message?.trim().orEmpty()
+                    val boundedSuggested = SavedStatePolicy.boundedInput(suggested)
                     _state.update {
-                        if (suggested.isEmpty() && response.error == null) {
-                            it.copy(
+                        when {
+                            responseError != null -> it.copy(
+                                isMutating = false,
+                                error = responseError,
+                                notice = null,
+                            )
+                            suggested.isEmpty() -> it.copy(
                                 isMutating = false,
                                 error = "No commit message could be generated.",
                                 notice = null,
                             )
-                        } else {
-                            it.copy(
-                                commitMessage = suggested.ifBlank { it.commitMessage },
+                            else -> it.copy(
+                                commitMessage = boundedSuggested,
                                 messageWasTruncated = response.truncated == true,
                                 isMutating = false,
-                                error = response.error,
-                                notice = if (response.error == null) "Generated commit message." else null,
+                                error = null,
+                                notice = "Generated commit message.",
                             )
                         }
                     }
-                    if (suggested.isNotBlank()) savedStateHandle?.set(SAVED_COMMIT_MESSAGE, suggested)
+                    if (responseError == null && boundedSuggested.isNotBlank()) {
+                        savedStateHandle?.setBoundedString(SAVED_COMMIT_MESSAGE, boundedSuggested)
+                    }
                 }
                 .onFailure { error -> _state.update { it.copy(isMutating = false, error = error.friendlyGitMessage("Could not generate commit message.")) } }
         }
@@ -378,15 +414,16 @@ class GitViewModel(
         if (!beginMutation()) return
         viewModelScope.launch {
             val shouldPush = _state.value.pushAfterCommit
-            runCatching {
+            runSuspendCatching {
                 if (paths == null) {
                     repository.commit(sessionId, message)
                 } else {
                     repository.commitSelected(sessionId, message, paths)
                 }
             }.onSuccess { response ->
-                if (response.error != null) {
-                    _state.update { it.copy(isMutating = false, error = response.error) }
+                val responseError = response.failureMessage("The server could not commit these changes.")
+                if (responseError != null) {
+                    _state.update { it.copy(isMutating = false, error = responseError) }
                     return@onSuccess
                 }
 
@@ -412,9 +449,11 @@ class GitViewModel(
     }
 
     private suspend fun pushAfterCommitOrError(): String? =
-        runCatching { repository.push(sessionId) }
+        runSuspendCatching { repository.push(sessionId) }
             .fold(
-                onSuccess = { response -> response.error?.let { "Committed, but the push failed. $it" } },
+                onSuccess = { response ->
+                    response.failureMessage("Push failed.")?.let { "Committed, but the push failed. $it" }
+                },
                 onFailure = { error -> "Committed, but the push failed. ${error.friendlyGitMessage("Push failed.")}" },
             )
 
@@ -434,8 +473,19 @@ class GitViewModel(
         mutate(success) { action(path) }
     }
 
-    private fun mutateTargetPaths(success: String, action: suspend (List<String>) -> GitMutationResponse) {
-        val paths = targetPaths()
+    private fun mutateTargetPaths(
+        success: String,
+        predicate: (GitFileChange) -> Boolean = { true },
+        action: suspend (List<String>) -> GitMutationResponse,
+    ) {
+        val selectedPaths = _state.value.selectedPaths
+        val paths = _state.value.files
+            .filter(predicate)
+            .filter { file ->
+                val path = file.serverPath()
+                path != null && (selectedPaths.isEmpty() || path in selectedPaths)
+            }
+            .mapNotNull { it.serverPath() }
         if (paths.isEmpty()) {
             _state.update { it.copy(error = "No changed files to update.") }
             return
@@ -456,13 +506,14 @@ class GitViewModel(
     private fun mutate(success: String, action: suspend () -> GitMutationResponse) {
         if (!beginMutation()) return
         viewModelScope.launch {
-            runCatching { action() }
+            runSuspendCatching { action() }
                 .onSuccess { response ->
-                    if (response.error == null) {
+                    val responseError = response.failureMessage("The server rejected this git action.")
+                    if (responseError == null) {
                         _state.update { it.copy(isMutating = false, notice = response.message ?: success, diff = null) }
                         refresh(clearNotice = false)
                     } else {
-                        _state.update { it.copy(isMutating = false, error = response.error) }
+                        _state.update { it.copy(isMutating = false, error = responseError) }
                     }
                 }
                 .onFailure { error -> _state.update { it.copy(isMutating = false, error = error.friendlyGitMessage("Git action failed.")) } }
@@ -480,14 +531,14 @@ class GitViewModel(
                     notice = null,
                 )
             }
-            runCatching {
+            runSuspendCatching {
                 if (stashingChanges) {
                     repository.stashCheckout(sessionId, target.ref, target.mode, target.newBranch, target.track)
                 } else {
                     repository.checkout(sessionId, target.ref, target.mode, target.newBranch, target.track)
                 }
             }.onSuccess { response ->
-                val responseError = response.error ?: response.restoreError
+                val responseError = response.failureMessage("The server could not switch branches.")
                 val message = response.message ?: "Switched to ${response.currentBranch ?: target.displayName}."
                 _state.update {
                     it.copy(

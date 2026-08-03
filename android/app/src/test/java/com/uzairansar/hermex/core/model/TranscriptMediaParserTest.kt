@@ -32,4 +32,22 @@ class TranscriptMediaParserTest {
         assertFalse(TranscriptMediaReference("/tmp/archive.zip").isRasterImageCandidate)
         assertEquals("image.jpeg", TranscriptMediaReference("/tmp/image.jpeg").displayName)
     }
+
+    @Test
+    fun shorterOrInfoBearingFenceDoesNotCloseACommonMarkCodeBlock() {
+        val segments = TranscriptMediaParser.segments(
+            """
+            ````text
+            ```
+            MEDIA:/tmp/still-code.png
+            ```` not-a-close
+            MEDIA:/tmp/also-code.png
+            ````
+            MEDIA:/tmp/outside.png
+            """.trimIndent(),
+        )
+
+        val media = segments.filterIsInstance<TranscriptMediaSegment.Media>()
+        assertEquals(listOf("/tmp/outside.png"), media.map { it.reference.rawReference })
+    }
 }

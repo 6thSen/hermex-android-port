@@ -16,6 +16,8 @@ class ServerTransportPolicyTest {
             "http://172.16.0.1/",
             "http://192.168.1.20/",
             "http://100.96.1.2/",
+            "http://[::ffff:192.168.1.20]/",
+            "http://[::ffff:10.0.2.2]/",
             "http://hermes.local/",
         ).forEach { requireAllowedServerTransport(it.toHttpUrl()) }
 

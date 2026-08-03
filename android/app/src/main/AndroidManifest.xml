@@ -40,6 +40,7 @@
         <activity
             android:name=".ShareActivity"
             android:exported="true"
+            android:label="@string/share_target_label"
             android:theme="@style/Theme.Hermex">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -79,15 +80,16 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="hermes-agent" android:host="share" />
-                <data android:scheme="hermes-agent" android:host="sessions" />
-                <data android:scheme="hermes-agent" android:host="new-chat" />
-                <data android:scheme="hermes-agent" android:host="new-chat-voice" />
-                <data android:scheme="hermes-agent" android:host="new-chat-profile" />
-                <data android:scheme="hermes-agent" android:host="chat" />
-                <data android:scheme="hermes-agent" android:host="session" />
-                <data android:scheme="hermes-agent" android:host="settings" />
-                <data android:scheme="hermes-agent" android:host="panels" />
+                <data android:scheme="hermes-agent" />
+                <data android:host="share" />
+                <data android:host="sessions" />
+                <data android:host="new-chat" />
+                <data android:host="new-chat-voice" />
+                <data android:host="new-chat-profile" />
+                <data android:host="chat" />
+                <data android:host="session" />
+                <data android:host="settings" />
+                <data android:host="panels" />
             </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"

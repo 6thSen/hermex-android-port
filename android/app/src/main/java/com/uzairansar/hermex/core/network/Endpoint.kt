@@ -159,8 +159,11 @@ sealed class Endpoint(
     data object Tts : Endpoint("/api/tts")
 
     fun url(relativeTo: HttpUrl): HttpUrl {
+        val basePath = relativeTo.encodedPath.trimEnd('/')
+        val endpointPath = path.trimStart('/')
+        val resolvedPath = if (basePath.isEmpty()) "/$endpointPath" else "$basePath/$endpointPath"
         val builder = relativeTo.newBuilder()
-            .encodedPath(path)
+            .encodedPath(resolvedPath)
             .encodedQuery(null)
         queryItems.forEach { (name, value) ->
             if (!value.isNullOrBlank()) builder.addQueryParameter(name, value)

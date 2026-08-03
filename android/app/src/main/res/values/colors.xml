@@ -1,5 +1,4 @@
 <resources>
-    <color name="ic_launcher_background">#111318</color>
     <color name="hermex_app_icon_light_background">#FDFDFD</color>
     <color name="hermex_app_icon_dark_background">#060607</color>
     <color name="hermex_app_icon_gradient_light_background">#FDFDFD</color>

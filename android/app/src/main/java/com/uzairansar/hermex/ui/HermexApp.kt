@@ -1,21 +1,31 @@
 package com.uzairansar.hermex.ui
 
 import android.content.Intent
+import android.app.Activity
 import android.net.Uri
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -28,6 +38,7 @@ import com.uzairansar.hermex.AppContainer
 import com.uzairansar.hermex.data.repository.AuthState
 import com.uzairansar.hermex.ui.chat.ChatRoute
 import com.uzairansar.hermex.ui.git.GitRoute
+import com.uzairansar.hermex.ui.localization.localizedString
 import com.uzairansar.hermex.ui.onboarding.OnboardingRoute
 import com.uzairansar.hermex.ui.panels.PanelsRoute
 import com.uzairansar.hermex.ui.sessions.SessionListRoute
@@ -37,12 +48,16 @@ import com.uzairansar.hermex.ui.theme.LocalHermexHapticsEnabled
 import com.uzairansar.hermex.ui.workspace.WorkspaceRoute
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 
 @Composable
 fun HermexApp(
     container: AppContainer,
     shortcutIntents: Flow<Intent> = emptyFlow(),
+    onResetSecureStorage: suspend () -> Result<Unit> = { Result.failure(IllegalStateException("Reset is unavailable.")) },
+    onShortcutIntentConsumed: (Intent) -> Unit = {},
 ) {
+    val context = LocalContext.current
     val navController = rememberNavController()
     val authState by container.authRepository.state.collectAsStateWithLifecycle()
     val themeMode by container.localSettingsRepository.themeMode.collectAsStateWithLifecycle(
@@ -61,14 +76,27 @@ fun HermexApp(
     var wasLoggedIn by rememberSaveable { mutableStateOf(activeServerKey != null) }
     var pendingAuthenticatedRoute by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingAuthenticatedServerId by rememberSaveable { mutableStateOf<String?>(null) }
-    var restoredSessionValidationComplete by remember {
-        mutableStateOf(authState !is AuthState.LoggedIn)
+    var restoredSessionValidationComplete by remember(container.authRepository) {
+        mutableStateOf(container.authRepository.restoredSessionValidationComplete)
     }
     val latestAuthState by rememberUpdatedState(authState)
+    val latestOnShortcutIntentConsumed by rememberUpdatedState(onShortcutIntentConsumed)
+    val profileShortcutPublisher = remember(context) { ProfileShortcutPublisher(context) }
+
+    container.secureStorageFailure?.let {
+        HermexTheme(themeMode = themeMode) {
+            SecureStorageRecoveryScreen(onResetSecureStorage)
+        }
+        return
+    }
+
+    LaunchedEffect(authState) {
+        if (authState !is AuthState.LoggedIn) profileShortcutPublisher.publish(emptyList())
+    }
 
     LaunchedEffect(container.authRepository) {
         if (authState is AuthState.LoggedIn) {
-            container.authRepository.validateRestoredSession()
+            container.authRepository.validateRestoredSessionOnce()
         }
         restoredSessionValidationComplete = true
     }
@@ -96,33 +124,37 @@ fun HermexApp(
 
     LaunchedEffect(navController, shortcutIntents) {
         shortcutIntents.collect { intent ->
-            val route = intent.hermexRoute()
-            if (route != null) {
-                val requestedServerId = intent.hermexServerId()
-                val loggedIn = latestAuthState as? AuthState.LoggedIn
-                if (loggedIn != null) {
-                    if (requestedServerId != null && requestedServerId != loggedIn.account.id) {
-                        val account = container.authRepository.servers.value.servers.firstOrNull { it.id == requestedServerId }
-                        if (account != null) {
-                            pendingAuthenticatedRoute = route
-                            pendingAuthenticatedServerId = requestedServerId
-                            container.authRepository.activate(requestedServerId)
+            try {
+                val route = intent.hermexRoute()
+                if (route != null) {
+                    val requestedServerId = intent.hermexServerId()
+                    val loggedIn = latestAuthState as? AuthState.LoggedIn
+                    if (loggedIn != null) {
+                        if (requestedServerId != null && requestedServerId != loggedIn.account.id) {
+                            val account = container.authRepository.servers.value.servers.firstOrNull { it.id == requestedServerId }
+                            if (account != null) {
+                                pendingAuthenticatedRoute = route
+                                pendingAuthenticatedServerId = requestedServerId
+                                container.authRepository.activate(requestedServerId)
+                            } else {
+                                navController.navigateSingleTop("sessions")
+                            }
                         } else {
-                            navController.navigateSingleTop("sessions")
+                            navController.navigateSingleTop(route)
                         }
                     } else {
-                        navController.navigateSingleTop(route)
+                        pendingAuthenticatedRoute = route
+                        pendingAuthenticatedServerId = requestedServerId
+                        navController.navigate("onboarding") {
+                            popUpTo(navController.graph.id) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
-                } else {
-                    pendingAuthenticatedRoute = route
-                    pendingAuthenticatedServerId = requestedServerId
-                    navController.navigate("onboarding") {
-                        popUpTo(navController.graph.id) { inclusive = true }
-                        launchSingleTop = true
-                    }
+                } else if (latestAuthState is AuthState.LoggedIn) {
+                    navController.handleDeepLink(intent)
                 }
-            } else if (latestAuthState is AuthState.LoggedIn) {
-                navController.handleDeepLink(intent)
+            } finally {
+                latestOnShortcutIntentConsumed(intent)
             }
         }
     }
@@ -150,6 +182,7 @@ fun HermexApp(
         observedServerKey = activeServerKey
         val changedServer = stayedLoggedIn && previousServerKey != null && previousServerKey != activeServerKey
         wasLoggedIn = true
+        if (changedServer) profileShortcutPublisher.publish(emptyList())
         val pendingRouteForServer = pendingAuthenticatedRoute?.takeIf {
             pendingAuthenticatedServerId == activeServerKey
         }
@@ -367,6 +400,54 @@ fun HermexApp(
                             }
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SecureStorageRecoveryScreen(
+    onResetSecureStorage: suspend () -> Result<Unit>,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val resetFailureMessage = localizedString("Could not reset secure storage.")
+    var isResetting by remember { mutableStateOf(false) }
+    var resetError by remember { mutableStateOf<String?>(null) }
+    Box(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier.widthIn(max = 480.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(localizedString("Secure storage needs recovery"), style = MaterialTheme.typography.headlineSmall)
+            Text(
+                localizedString("Hermex could not open its encrypted account data. Resetting removes saved servers, sign-in cookies, and custom headers from this device."),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            resetError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Button(
+                enabled = !isResetting,
+                onClick = {
+                    isResetting = true
+                    resetError = null
+                    scope.launch {
+                        onResetSecureStorage()
+                            .onSuccess { (context as? Activity)?.recreate() }
+                            .onFailure { error ->
+                                resetError = error.message ?: resetFailureMessage
+                                isResetting = false
+                            }
+                    }
+                },
+            ) {
+                if (isResetting) {
+                    CircularProgressIndicator(strokeWidth = 2.dp)
+                } else {
+                    Text(localizedString("Reset secure data"))
                 }
             }
         }

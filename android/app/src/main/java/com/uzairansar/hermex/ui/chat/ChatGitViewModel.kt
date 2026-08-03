@@ -2,15 +2,21 @@ package com.uzairansar.hermex.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.uzairansar.hermex.core.runSuspendCatching
 import com.uzairansar.hermex.core.model.GitCommitResponse
 import com.uzairansar.hermex.core.model.GitFileChange
 import com.uzairansar.hermex.core.model.GitMutationResponse
 import com.uzairansar.hermex.core.network.ApiError
 import com.uzairansar.hermex.data.repository.GitRepository
+import com.uzairansar.hermex.ui.git.failureMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ChatGitPhase(val title: String) {
     GeneratingMessage("Generating message..."),
@@ -41,16 +47,27 @@ class ChatGitViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(ChatGitUiState(isLoading = true))
     val state: StateFlow<ChatGitUiState> = _state
+    private var refreshJob: Job? = null
+    private var refreshGeneration = 0L
 
     init {
         refresh()
     }
 
-    fun refresh() {
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
-            runCatching { repository.status(sessionId) }
+    fun refresh(clearMessages: Boolean = true) {
+        val generation = ++refreshGeneration
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    isLoading = true,
+                    error = if (clearMessages) null else it.error,
+                    notice = if (clearMessages) null else it.notice,
+                )
+            }
+            runSuspendCatching { repository.status(sessionId) }
                 .onSuccess { status ->
+                    if (generation != refreshGeneration) return@onSuccess
                     val files = status.files.orEmpty()
                     val hasRepository = status.isGit != false && (status.isGit == true || status.error == null)
                     _state.update {
@@ -63,11 +80,12 @@ class ChatGitViewModel(
                             totalDeletions = status.totalDeletions ?: files.sumOf { file -> file.deletions ?: 0 },
                             truncated = status.truncated == true,
                             isLoading = false,
-                            error = status.error,
+                            error = status.error ?: if (clearMessages) null else it.error,
                         )
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException || generation != refreshGeneration) return@onFailure
                     _state.update {
                         it.copy(
                             hasRepository = false,
@@ -96,12 +114,14 @@ class ChatGitViewModel(
     }
 
     private fun remote(success: String, action: suspend () -> GitMutationResponse) {
+        if (_state.value.isMutating) return
+        _state.update { it.copy(isMutating = true, phase = null, notice = null, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isMutating = true, phase = null, notice = null, error = null) }
-            runCatching { action() }
+            runSuspendCatching { action() }
                 .onSuccess { response ->
-                    if (response.error != null) {
-                        _state.update { it.copy(isMutating = false, error = response.error) }
+                    val responseError = response.failureMessage("The server rejected this git action.")
+                    if (responseError != null) {
+                        _state.update { it.copy(isMutating = false, error = responseError) }
                     } else {
                         _state.update { it.copy(isMutating = false, notice = response.message ?: success) }
                         refresh()
@@ -132,23 +152,29 @@ class ChatGitViewModel(
         }
 
         viewModelScope.launch {
+            val newlyStagedPaths = snapshot.files
+                .filter { it.staged != true }
+                .mapNotNull { it.serverPath() }
+            var stagedByQuickCommit = false
             _state.update { it.copy(isMutating = true, phase = ChatGitPhase.GeneratingMessage, error = null, notice = null) }
-            runCatching {
+            runSuspendCatching {
                 repository.stage(sessionId, paths).throwIfError()
+                stagedByQuickCommit = true
                 val suggestion = repository.commitMessage(sessionId)
+                suggestion.failureMessage("The server could not generate a commit message.")?.let(::error)
                 val message = suggestion.message?.trim().orEmpty()
                 if (message.isBlank()) error("No commit message could be generated.")
 
                 _state.update { it.copy(phase = ChatGitPhase.Committing) }
                 val commit = repository.commit(sessionId, message)
-                if (commit.error != null) error(commit.error)
+                commit.failureMessage("The server could not commit these changes.")?.let(::error)
 
                 var pushFailure: String? = null
                 if (push) {
                     _state.update { it.copy(phase = ChatGitPhase.Pushing) }
-                    pushFailure = runCatching { repository.push(sessionId) }
+                    pushFailure = runSuspendCatching { repository.push(sessionId) }
                         .fold(
-                            onSuccess = { response -> response.error },
+                            onSuccess = { response -> response.failureMessage("Push failed.") },
                             onFailure = { error -> error.friendlyGitMessage("Push failed.") },
                         )
                 }
@@ -165,13 +191,25 @@ class ChatGitViewModel(
                 _state.update { it.copy(isMutating = false, phase = null, notice = notice, error = error) }
                 refresh()
             }.onFailure { error ->
+                val rollbackError = if (stagedByQuickCommit && newlyStagedPaths.isNotEmpty()) {
+                    withContext(NonCancellable) {
+                        runSuspendCatching {
+                            repository.unstage(sessionId, newlyStagedPaths).throwIfError()
+                        }.exceptionOrNull()
+                    }
+                } else {
+                    null
+                }
+                val failureMessage = error.friendlyGitMessage("Could not commit changes.")
+                val rollbackMessage = rollbackError?.friendlyGitMessage("Could not restore the previous staging state.")
                 _state.update {
                     it.copy(
                         isMutating = false,
                         phase = null,
-                        error = error.friendlyGitMessage("Could not commit changes."),
+                        error = listOfNotNull(failureMessage, rollbackMessage).joinToString(" "),
                     )
                 }
+                refresh(clearMessages = false)
             }
         }
     }
@@ -196,7 +234,7 @@ private data class QuickCommitResult(
 }
 
 private fun GitMutationResponse.throwIfError() {
-    if (error != null) error(error)
+    failureMessage("The server rejected this git action.")?.let(::error)
 }
 
 private fun GitFileChange.serverPath(): String? =

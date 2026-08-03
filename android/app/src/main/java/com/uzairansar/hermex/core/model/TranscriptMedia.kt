@@ -88,6 +88,7 @@ object TranscriptMediaParser {
         var cursor = 0
         var isInFence = false
         var fenceCharacter: Char? = null
+        var fenceLength = 0
 
         while (cursor < markdown.length) {
             val newlineIndex = markdown.indexOf('\n', startIndex = cursor)
@@ -96,16 +97,24 @@ object TranscriptMediaParser {
 
             if (isInFence) {
                 appendText(line, segments)
-                if (fenceMarker(line) == fenceCharacter) {
+                val marker = fenceMarker(line)
+                if (
+                    marker != null &&
+                    marker.character == fenceCharacter &&
+                    marker.length >= fenceLength &&
+                    marker.trailingText.isBlank()
+                ) {
                     isInFence = false
                     fenceCharacter = null
+                    fenceLength = 0
                 }
             } else {
                 val marker = fenceMarker(line)
                 if (marker != null) {
                     appendText(line, segments)
                     isInFence = true
-                    fenceCharacter = marker
+                    fenceCharacter = marker.character
+                    fenceLength = marker.length
                 } else {
                     appendMediaSegments(line, segments)
                 }
@@ -168,7 +177,7 @@ object TranscriptMediaParser {
     private fun isReferenceTerminator(character: Char): Boolean =
         character.isWhitespace() || character == ')' || character == ']'
 
-    private fun fenceMarker(line: String): Char? {
+    private fun fenceMarker(line: String): FenceMarker? {
         var index = 0
         var leadingSpaces = 0
         while (index < line.length && line[index] == ' ' && leadingSpaces < 4) {
@@ -176,13 +185,15 @@ object TranscriptMediaParser {
             index += 1
         }
         if (leadingSpaces > 3 || index >= line.length) return null
-        return when {
-            line.startsWith("```", index) -> '`'
-            line.startsWith("~~~", index) -> '~'
-            else -> null
-        }
+        val character = line[index].takeIf { it == '`' || it == '~' } ?: return null
+        var end = index
+        while (end < line.length && line[end] == character) end += 1
+        val length = end - index
+        if (length < 3) return null
+        return FenceMarker(character, length, line.substring(end).trimEnd('\r', '\n'))
     }
 
+    private data class FenceMarker(val character: Char, val length: Int, val trailingText: String)
     private data class IntRangeBounds(val first: Int, val last: Int)
 
     private val trailingPunctuation = setOf('.', ',', ';', ':', '!', '?')

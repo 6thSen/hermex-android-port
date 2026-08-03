@@ -14,30 +14,44 @@ class PersistentCookieJar(
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         if (cookies.isEmpty()) return
         synchronized(lock) {
-            val key = keyFor(url)
-            val existing = read(key).filterNot { stored ->
+            val existing = readAll(url).filterNot { stored ->
                 cookies.any { it.name == stored.name && it.domain == stored.domain && it.path == stored.path }
             }
             val updated = existing + cookies.map(CookieRecord::from)
-            secretStore.putString(key, HermesJson.encodeToString(updated))
+            persist(updated)
+            secretStore.remove(legacyKeyFor(url))
         }
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> = synchronized(lock) {
-        val key = keyFor(url)
         val now = System.currentTimeMillis()
-        val records = read(key)
+        val records = readAll(url)
         val fresh = records.filter { it.expiresAt == null || it.expiresAt > now }
-        if (fresh.size != records.size) {
-            secretStore.putString(key, HermesJson.encodeToString(fresh))
+        if (fresh.size != records.size || read(legacyKeyFor(url)).isNotEmpty()) {
+            persist(fresh)
+            secretStore.remove(legacyKeyFor(url))
         }
         fresh.mapNotNull { it.toCookie() }.filter { it.matches(url) }
     }
 
     fun clear(url: HttpUrl) {
         synchronized(lock) {
-            secretStore.remove(keyFor(url))
+            val host = url.host.lowercase()
+            persist(readAll(url).filterNot { record ->
+                val domain = record.domain.lowercase().trimStart('.')
+                host == domain || host.endsWith(".$domain") || domain.endsWith(".$host")
+            })
+            secretStore.remove(legacyKeyFor(url))
         }
+    }
+
+    private fun readAll(url: HttpUrl): List<CookieRecord> =
+        (read(COOKIE_STORE_KEY) + read(legacyKeyFor(url)))
+            .distinctBy { record -> Triple(record.name, record.domain, record.path) }
+
+    private fun persist(records: List<CookieRecord>) {
+        if (records.isEmpty()) secretStore.remove(COOKIE_STORE_KEY)
+        else secretStore.putString(COOKIE_STORE_KEY, HermesJson.encodeToString(records))
     }
 
     private fun read(key: String): List<CookieRecord> =
@@ -45,7 +59,11 @@ class PersistentCookieJar(
             ?.let { runCatching { HermesJson.decodeFromString<List<CookieRecord>>(it) }.getOrNull() }
             .orEmpty()
 
-    private fun keyFor(url: HttpUrl): String = "cookies::${ServerOrigin.from(url)}"
+    private fun legacyKeyFor(url: HttpUrl): String = "cookies::${ServerOrigin.from(url)}"
+
+    private companion object {
+        const val COOKIE_STORE_KEY = "cookies::all"
+    }
 }
 
 private object ServerOrigin {

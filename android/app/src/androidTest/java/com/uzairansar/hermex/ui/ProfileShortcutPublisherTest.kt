@@ -28,7 +28,7 @@ class ProfileShortcutPublisherTest {
 
         val shortcut = ShortcutManagerCompat.getDynamicShortcuts(context)
             .first { it.id.startsWith("profile_") }
-        assertEquals("New Review", shortcut.shortLabel.toString())
+        assertEquals("New Chat: Review", shortcut.shortLabel.toString())
         assertEquals("hermes-agent://new-chat-profile?profile=review", shortcut.intent.dataString)
         assertTrue(shortcut.isEnabled)
     }
