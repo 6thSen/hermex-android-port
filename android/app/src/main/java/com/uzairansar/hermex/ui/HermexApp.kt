@@ -308,6 +308,7 @@ fun HermexApp(
                             viewModelKey = "chat:$activeServerKey:${entry.arguments?.getString("sessionId")}",
                             repository = container.chatRepository(server),
                             gitRepository = container.gitRepository(server),
+                            workspaceRepository = container.workspaceRepository(server),
                             localSettingsRepository = container.localSettingsRepository,
                             activeHeaderColorHex = headerLogoColorHex,
                             sharedDraftStore = container.sharedDraftStore,

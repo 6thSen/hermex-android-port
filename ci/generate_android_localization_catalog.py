@@ -124,6 +124,8 @@ def xml_content(
             f'    <string name="{resource_name(key)}" formatted="false">{android_xml_value(value)}</string>'
         )
     for key in sorted(aliases):
+        if key in entries:
+            continue
         if locale == "en":
             value = key
         else:
@@ -133,6 +135,8 @@ def xml_content(
             f'    <string name="{resource_name(key)}" formatted="false">{android_xml_value(value)}</string>'
         )
     for key in sorted(platform_aliases):
+        if key in entries or key in aliases:
+            continue
         alias = platform_aliases[key]
         source_key = alias["source"]
         source_entry = entries[source_key]
@@ -146,6 +150,8 @@ def xml_content(
             f'    <string name="{resource_name(key)}" formatted="false">{android_xml_value(value)}</string>'
         )
     for key in sorted(supplemental):
+        if key in entries or key in aliases or key in platform_aliases:
+            continue
         value = supplemental[key][locale]
         lines.append(
             f'    <string name="{resource_name(key)}" formatted="false">{android_xml_value(value)}</string>'
@@ -173,10 +179,16 @@ def kotlin_content(
     for key in sorted(entries):
         lines.append(f'        "{kotlin_string(key)}" to R.string.{resource_name(key)},')
     for key in sorted(aliases):
+        if key in entries:
+            continue
         lines.append(f'        "{kotlin_string(key)}" to R.string.{resource_name(key)},')
     for key in sorted(platform_aliases):
+        if key in entries or key in aliases:
+            continue
         lines.append(f'        "{kotlin_string(key)}" to R.string.{resource_name(key)},')
     for key in sorted(supplemental):
+        if key in entries or key in aliases or key in platform_aliases:
+            continue
         lines.append(f'        "{kotlin_string(key)}" to R.string.{resource_name(key)},')
     lines.extend(
         [
@@ -233,7 +245,7 @@ def main() -> None:
         write_or_check(output, xml_content(locale, entries, aliases, platform_aliases, supplemental), args.check)
     write_or_check(KOTLIN_OUTPUT, kotlin_content(entries, aliases, platform_aliases, supplemental), args.check)
     verb = "Verified" if args.check else "Generated"
-    total = len(entries) + len(aliases) + len(platform_aliases) + len(supplemental)
+    total = len(set(entries) | set(aliases) | set(platform_aliases) | set(supplemental))
     print(f"{verb} {total} Android localization keys from {len(entries)} iOS entries for {len(LOCALE_DIRECTORIES)} locales.")
 
 

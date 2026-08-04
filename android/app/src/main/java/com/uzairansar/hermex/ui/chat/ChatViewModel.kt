@@ -1372,7 +1372,7 @@ class ChatViewModel internal constructor(
         resultOrNullPreservingCancellation { repository.synthesizeSpeech(text) }
 
     suspend fun transcriptMediaThumbnailData(reference: TranscriptMediaReference): ByteArray? =
-        resultOrNullPreservingCancellation { repository.transcriptMediaData(reference) }
+        resultOrNullPreservingCancellation { repository.transcriptMediaData(sessionId, reference) }
 
     suspend fun attachmentImageData(path: String): ByteArray? =
         transcriptMediaThumbnailData(TranscriptMediaReference(path))

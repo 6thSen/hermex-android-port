@@ -163,6 +163,7 @@ import com.uzairansar.hermex.data.preferences.ChatDisplaySettings
 import com.uzairansar.hermex.data.preferences.LocalSettingsRepository
 import com.uzairansar.hermex.data.preferences.ModelFavoriteKey
 import com.uzairansar.hermex.data.preferences.StreamingSendBehavior
+import com.uzairansar.hermex.data.repository.WorkspaceRepository
 import com.uzairansar.hermex.data.preferences.displayModelTitle
 import com.uzairansar.hermex.data.preferences.favoriteKeyOrNull
 import com.uzairansar.hermex.data.preferences.matchesSelection
@@ -205,6 +206,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 import com.uzairansar.hermex.ui.localization.localizedString
+import com.uzairansar.hermex.ui.workspace.WorkspaceManagerDialog
 import com.uzairansar.hermex.ui.localization.localizedStringFormat
 
 private data class TurnDiffPresentation(
@@ -224,6 +226,7 @@ fun ChatRoute(
     viewModelKey: String = "chat:$sessionId",
     repository: ChatRepository,
     gitRepository: GitRepository? = null,
+    workspaceRepository: WorkspaceRepository? = null,
     localSettingsRepository: LocalSettingsRepository? = null,
     activeHeaderColorHex: String? = null,
     sharedDraftStore: SharedDraftStore? = null,
@@ -435,6 +438,7 @@ fun ChatRoute(
     var showsProfilePicker by rememberSaveable { mutableStateOf(false) }
     var showsReasoningPicker by rememberSaveable { mutableStateOf(false) }
     var showsWorkspacePicker by rememberSaveable { mutableStateOf(false) }
+    var showsWorkspaceManager by rememberSaveable { mutableStateOf(false) }
     var showsAttachmentOptions by rememberSaveable { mutableStateOf(false) }
     var selectedTextContext by remember { mutableStateOf<MessageActionContext?>(null) }
     var editingMessageContext by remember { mutableStateOf<MessageActionContext?>(null) }
@@ -1085,10 +1089,24 @@ fun ChatRoute(
             suggestions = state.workspaceSuggestions,
             onLoadSuggestions = viewModel::loadWorkspaceSuggestions,
             onDismiss = { showsWorkspacePicker = false },
+            onManage = workspaceRepository?.let {
+                {
+                    showsWorkspacePicker = false
+                    showsWorkspaceManager = true
+                }
+            },
             onSelect = { path ->
                 showsWorkspacePicker = false
                 viewModel.selectWorkspace(path)
             },
+        )
+    }
+    if (showsWorkspaceManager && workspaceRepository != null) {
+        WorkspaceManagerDialog(
+            viewModelKey = "workspace-manager:${repository.serverUrl}",
+            repository = workspaceRepository,
+            onDismiss = { showsWorkspaceManager = false },
+            onRegistryChanged = viewModel::loadComposerConfig,
         )
     }
     if (showsAttachmentOptions) {
@@ -3014,6 +3032,7 @@ private fun WorkspacePickerDialog(
     suggestions: List<String>,
     onLoadSuggestions: (String) -> Unit,
     onDismiss: () -> Unit,
+    onManage: (() -> Unit)? = null,
     onSelect: (String) -> Unit,
 ) {
     var prefix by rememberSaveable { mutableStateOf("") }
@@ -3072,6 +3091,19 @@ private fun WorkspacePickerDialog(
                     )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+            if (onManage != null) {
+                item("workspace-manage") {
+                    TextButton(
+                        onClick = onManage,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        Text(localizedString("Manage Workspaces"))
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
             if (!effectiveSelected.isNullOrBlank()) {
                 item("current-header") {

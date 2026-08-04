@@ -108,7 +108,8 @@ class ChatRepository(
             }
             if (!error.isChatCacheFallbackEligible()) return ResultState.Error(error.userMessage(), error)
             val cached = cacheOwnership.readIfCurrent(serverUrl, operationGeneration) {
-                val messages = cacheDao.cachedMessages(serverUrl, sessionId, now).mapNotNull { it.toMessage() }
+                val messages = cacheDao.cachedMessages(serverUrl, sessionId, now, MESSAGE_PAGE_LIMIT)
+                    .mapNotNull { it.toMessage() }
                 val metadata = cacheDao.cachedSessions(serverUrl, now)
                     .firstOrNull { it.sessionId == sessionId }
                     ?.toSummary()
@@ -321,7 +322,8 @@ class ChatRepository(
         client.respondClarification(sessionId, response, clarifyId)
     suspend fun upload(sessionId: String, file: File, mimeType: String?) = client.upload(sessionId, file, mimeType)
     suspend fun transcribe(file: File): TranscribeResponse = client.transcribe(file)
-    suspend fun transcriptMediaData(reference: TranscriptMediaReference): ByteArray = client.transcriptMediaData(reference)
+    suspend fun transcriptMediaData(sessionId: String, reference: TranscriptMediaReference): ByteArray =
+        client.transcriptMediaData(reference, sessionId)
     suspend fun attachmentFile(sessionId: String, path: String): FileResponse = client.file(sessionId, path)
     suspend fun synthesizeSpeech(text: String, voice: String = "en-US-AriaNeural"): ByteArray =
         client.synthesizeSpeech(text, voice)
@@ -477,4 +479,12 @@ private fun SessionDetail.toSummary(): SessionSummary = SessionSummary(
     activeStreamId = activeStreamId,
     isStreaming = isStreaming,
     isCliSession = isCliSession,
+    sourceTag = sourceTag,
+    rawSource = rawSource,
+    sessionSource = sessionSource,
+    sourceLabel = sourceLabel,
+    parentSessionId = parentSessionId,
+    relationshipType = relationshipType,
+    readOnly = readOnly,
+    isReadOnly = isReadOnly,
 )

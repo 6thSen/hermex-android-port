@@ -10,6 +10,7 @@ import com.uzairansar.hermex.core.model.CronStatusResponse
 import com.uzairansar.hermex.core.model.GoalSubmissionResponse
 import com.uzairansar.hermex.core.model.MemoryResponse
 import com.uzairansar.hermex.core.model.ModelCatalogResponse
+import com.uzairansar.hermex.core.model.PendingApproval
 import com.uzairansar.hermex.core.model.ReasoningResponse
 import com.uzairansar.hermex.core.model.SessionClearResponse
 import com.uzairansar.hermex.core.model.SessionResponse
@@ -399,6 +400,50 @@ class TolerantDecodingTest {
         assertEquals(1545, decoded.totalTokens)
         assertEquals(0.042, decoded.estimatedCost ?: 0.0, 0.0)
         assertEquals("@openai:gpt-5.5", decoded.model)
+    }
+
+    @Test
+    fun oversizedOptionalIntegersDoNotRejectTheContainingResponse() {
+        val usage = HermesJson.decodeFromString<SessionUsageResponse>(
+            """{"input_tokens":999999999999,"output_tokens":42,"model":"gpt-test"}""",
+        )
+        val session = HermesJson.decodeFromString<SessionResponse>(
+            """{"session":{"session_id":"s1","context_length":999999999999,"output_tokens":7}}""",
+        )
+
+        assertEquals(null, usage.inputTokens)
+        assertEquals(42, usage.outputTokens)
+        assertEquals("gpt-test", usage.model)
+        assertEquals(null, session.session?.contextLength)
+        assertEquals(7, session.session?.outputTokens)
+    }
+
+    @Test
+    fun approvalIdAcceptsGatewayAliasAndRejectsBlankAliases() {
+        val gateway = HermesJson.decodeFromString<PendingApproval>("""{"id":" gateway-42 "}""")
+        val blank = HermesJson.decodeFromString<PendingApproval>("""{"approvalId":" ","approval_id":""}""")
+
+        assertEquals("gateway-42", gateway.normalizedApprovalId)
+        assertEquals(null, blank.normalizedApprovalId)
+    }
+
+    @Test
+    fun sessionMetadataClassifiesExplicitAndDelegatedReadOnlyRows() {
+        val decoded = HermesJson.decodeFromString<SessionsResponse>(
+            """
+            {
+              "sessions": [
+                {"session_id":"imported","raw_source":"claude_code","is_read_only":true},
+                {"session_id":"child","source_tag":"subagent","read_only":false}
+              ]
+            }
+            """.trimIndent(),
+        ).sessions.orEmpty()
+
+        assertEquals(true, decoded[0].isSessionReadOnly)
+        assertEquals(false, decoded[0].isDelegatedSubagentSession)
+        assertEquals(true, decoded[1].isSessionReadOnly)
+        assertEquals(true, decoded[1].isDelegatedSubagentSession)
     }
 
     @Test

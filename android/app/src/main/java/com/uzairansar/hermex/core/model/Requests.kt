@@ -7,6 +7,29 @@ import kotlinx.serialization.Serializable
 class EmptyBody
 
 @Serializable
+data class AddWorkspaceRequest(
+    val path: String,
+    val name: String? = null,
+    val create: Boolean? = null,
+)
+
+@Serializable
+data class RemoveWorkspaceRequest(
+    val path: String,
+)
+
+@Serializable
+data class RenameWorkspaceRequest(
+    val path: String,
+    val name: String,
+)
+
+@Serializable
+data class ReorderWorkspacesRequest(
+    val paths: List<String>,
+)
+
+@Serializable
 data class LoginRequest(
     val password: String,
 )

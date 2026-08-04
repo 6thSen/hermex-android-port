@@ -176,15 +176,23 @@ class HermesApiClient(
         post(Endpoint.ClarifyRespond, ClarifyRespondRequest(sessionId, clarifyId, response))
     suspend fun workspaces(): WorkspacesResponse = get(Endpoint.Workspaces)
     suspend fun workspaceSuggestions(prefix: String): WorkspaceSuggestionsResponse = get(Endpoint.WorkspaceSuggestions(prefix))
+    suspend fun addWorkspace(path: String, name: String? = null, create: Boolean? = null): WorkspaceMutationResponse =
+        post(Endpoint.WorkspaceAdd, AddWorkspaceRequest(path, name, create))
+    suspend fun removeWorkspace(path: String): WorkspaceMutationResponse =
+        post(Endpoint.WorkspaceRemove, RemoveWorkspaceRequest(path))
+    suspend fun renameWorkspace(path: String, name: String): WorkspaceMutationResponse =
+        post(Endpoint.WorkspaceRename, RenameWorkspaceRequest(path, name))
+    suspend fun reorderWorkspaces(paths: List<String>): WorkspaceMutationResponse =
+        post(Endpoint.WorkspaceReorder, ReorderWorkspacesRequest(paths))
     suspend fun directoryList(sessionId: String, path: String?): DirectoryListResponse = get(Endpoint.DirectoryList(sessionId, path))
     suspend fun file(sessionId: String, path: String): FileResponse = get(Endpoint.File(sessionId, path))
     suspend fun rawFile(sessionId: String, path: String): ByteArray =
         data(Endpoint.RawFile(sessionId, path), "GET", maxResponseBytes = MAX_PREVIEW_RESPONSE_BYTES)
-    suspend fun media(path: String): ByteArray =
-        data(Endpoint.Media(path), "GET", maxResponseBytes = MAX_MEDIA_RESPONSE_BYTES)
-    suspend fun transcriptMediaData(reference: TranscriptMediaReference): ByteArray =
+    suspend fun media(sessionId: String, path: String): ByteArray =
+        data(Endpoint.Media(sessionId, path), "GET", maxResponseBytes = MAX_MEDIA_RESPONSE_BYTES)
+    suspend fun transcriptMediaData(reference: TranscriptMediaReference, sessionId: String): ByteArray =
         when (val source = reference.source) {
-            is TranscriptMediaSource.LocalPath -> media(source.path)
+            is TranscriptMediaSource.LocalPath -> media(sessionId, source.path)
             is TranscriptMediaSource.RemoteUrl -> remoteTranscriptMediaData(source.url)
         }
     suspend fun remoteTranscriptMediaData(url: HttpUrl): ByteArray {
@@ -253,6 +261,21 @@ class HermesApiClient(
     suspend fun cronHistory(jobId: String, offset: Int? = null, limit: Int? = 50): CronHistoryResponse =
         get(Endpoint.CronHistory(jobId, offset, limit))
     suspend fun cronDeliveryOptions(): CronDeliveryOptionsResponse = get(Endpoint.CronDeliveryOptions)
+    suspend fun kanbanConfiguration(): KanbanConfiguration = get(Endpoint.KanbanConfig)
+    suspend fun kanbanBoards(): KanbanBoardsResponse = get(Endpoint.KanbanBoards)
+    suspend fun kanbanBoard(
+        board: String,
+        tenant: String? = null,
+        assignee: String? = null,
+        includeArchived: Boolean = false,
+        onlyMine: Boolean = false,
+        since: Int? = null,
+    ): KanbanBoardSnapshot = get(Endpoint.KanbanBoard(board, tenant, assignee, includeArchived, onlyMine, since))
+    suspend fun kanbanStats(board: String): KanbanStats = get(Endpoint.KanbanStats(board))
+    suspend fun kanbanAssignees(board: String): KanbanAssigneeHistory = get(Endpoint.KanbanAssignees(board))
+    suspend fun kanbanEvents(board: String, since: Int, limit: Int = 200): KanbanEventsEnvelope =
+        get(Endpoint.KanbanEvents(board, since, limit))
+    fun kanbanEventsStreamUrl(board: String, since: Int): HttpUrl = Endpoint.KanbanEventsStream(board, since).url(baseUrl)
     suspend fun skills(): SkillsResponse = get(Endpoint.Skills)
     suspend fun skillContent(name: String, file: String? = null): SkillContentResponse = get(Endpoint.SkillContent(name, file))
     suspend fun toggleSkill(name: String, enabled: Boolean): ToggleSkillResponse = post(Endpoint.ToggleSkill, ToggleSkillRequest(name, enabled))

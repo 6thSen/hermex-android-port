@@ -467,11 +467,13 @@ class SessionListViewModel(
     }
 
     fun togglePin(session: SessionSummary) {
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId ?: return
         mutate("Pin updated.") { repository.pin(id, session.pinned != true).mutationError("The server could not update the pin.") }
     }
 
     fun toggleArchive(session: SessionSummary) {
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId ?: return
         val archived = session.archived != true
         mutate(if (archived) "Session archived." else "Session restored.") {
@@ -480,6 +482,7 @@ class SessionListViewModel(
     }
 
     fun requestRename(session: SessionSummary) {
+        if (rejectReadOnlyMutation(session)) return
         _state.update { it.copy(renameSession = session, renameDraft = session.title.orEmpty(), error = null) }
     }
 
@@ -493,6 +496,7 @@ class SessionListViewModel(
 
     fun confirmRename() {
         val session = _state.value.renameSession ?: return
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId ?: return
         val title = _state.value.renameDraft.trim()
         if (title.isBlank()) {
@@ -504,6 +508,7 @@ class SessionListViewModel(
     }
 
     fun requestDelete(session: SessionSummary) {
+        if (rejectReadOnlyMutation(session)) return
         _state.update { it.copy(deleteSession = session, error = null) }
     }
 
@@ -513,6 +518,7 @@ class SessionListViewModel(
 
     fun confirmDelete() {
         val session = _state.value.deleteSession ?: return
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId ?: return
         viewModelScope.launch {
             _state.update { it.copy(isMutating = true, error = null, notice = null) }
@@ -539,6 +545,7 @@ class SessionListViewModel(
     }
 
     fun requestBranch(session: SessionSummary) {
+        if (rejectReadOnlyMutation(session)) return
         _state.update { it.copy(branchSession = session, branchTitleDraft = "", error = null) }
     }
 
@@ -552,6 +559,7 @@ class SessionListViewModel(
 
     fun confirmBranch() {
         val session = _state.value.branchSession ?: return
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId ?: return
         val title = _state.value.branchTitleDraft.trim().ifBlank { null }
         _state.update { it.copy(branchSession = null, branchTitleDraft = "") }
@@ -579,6 +587,7 @@ class SessionListViewModel(
     }
 
     fun duplicate(session: SessionSummary) {
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId
         if (id.isNullOrBlank()) {
             _state.update { it.copy(error = "The server did not provide a session ID.") }
@@ -626,6 +635,7 @@ class SessionListViewModel(
     }
 
     fun move(session: SessionSummary, projectId: String?) {
+        if (rejectReadOnlyMutation(session)) return
         val id = session.sessionId ?: return
         if (session.projectId == projectId) return
         mutate(if (projectId == null) "Moved to no project." else "Moved to project.") {
@@ -814,6 +824,21 @@ class SessionListViewModel(
     private fun duplicateTitle(session: SessionSummary): String {
         val baseTitle = session.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Untitled Session"
         return "$baseTitle (copy)"
+    }
+
+    private fun rejectReadOnlyMutation(session: SessionSummary): Boolean {
+        if (!session.isSessionReadOnly) return false
+        _state.update {
+            it.copy(
+                renameSession = null,
+                deleteSession = null,
+                branchSession = null,
+                isMutating = false,
+                notice = null,
+                error = "This session is read-only.",
+            )
+        }
+        return true
     }
 
     private companion object {

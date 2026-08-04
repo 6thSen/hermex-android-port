@@ -95,9 +95,9 @@
       }
     },
     "Control your Hermes agent from Android.": {
-      "source": "Control your Hermes agent from iPhone.",
+      "source": "Control your Hermes agent from iPhone or iPad.",
       "replace": {
-        "iPhone": "Android"
+        "iPhone or iPad": "Android"
       }
     },
     "Get Tailscale on Google Play": {

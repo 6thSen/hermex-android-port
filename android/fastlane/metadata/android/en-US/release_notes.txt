@@ -1,1 +1,1 @@
-Completes Android parity for responsive chat, sharing, deep links, voice input, workspace export, profile shortcuts, streaming recovery, and 18 locales. Fixes clipped chat headers, stale session lists, and model selection after reopening sessions whose provider aliases differ.
+Fixes transcript media authorization, gateway approval IDs, oversized token-count decoding, and large offline transcript loading. Adds workspace registry management, protects read-only sessions, and introduces the capability-validated Kanban compatibility foundation.

@@ -584,11 +584,12 @@ class HermesApiClientSessionTest {
             )
 
             val client = HermesApiClient(server.url("/"), OkHttpClient())
-            val bytes = client.media("/tmp/chart.png")
+            val bytes = client.media("session-123", "/tmp/chart.png")
 
             val request = server.takeRequest()
             assertEquals("PNG", bytes.decodeToString())
             assertEquals("/api/media", request.url.encodedPath)
+            assertEquals("session-123", request.url.queryParameter("session_id"))
             assertEquals("/tmp/chart.png", request.url.queryParameter("path"))
             assertEquals("GET", request.method)
             assertNull(request.headers["Origin"])

@@ -1315,12 +1315,13 @@ private fun SessionRow(
     onExport: (SessionExportFormat) -> Unit,
 ) {
     val metadata = session.sessionRowMetadataLabel(showsMessageCount, showsWorkspace)
-    val rowMinimumHeight = if (metadata != null || session.isActiveStreaming || isViewingCachedData) 54.dp else 46.dp
+    val mutationActionsEnabled = !isMutating && !session.isSessionReadOnly
+    val rowMinimumHeight = if (metadata != null || session.isActiveStreaming || isViewingCachedData || session.isSessionReadOnly) 54.dp else 46.dp
     Column(
         modifier = Modifier.fillMaxWidth(),
     ) {
         SessionSwipeContainer(
-            enabled = !isMutating,
+            enabled = mutationActionsEnabled,
             archived = session.archived == true,
             onArchive = onArchive,
             onDelete = onDelete,
@@ -1372,13 +1373,14 @@ private fun SessionRow(
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary, maxLines = 1)
                     }
                 }
-                if (metadata != null || session.isActiveStreaming || isViewingCachedData) {
+                if (metadata != null || session.isActiveStreaming || isViewingCachedData || session.isSessionReadOnly) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (session.isActiveStreaming) SessionStateBadge(localizedString("Live"), Color(0xFF34C759))
                         if (isViewingCachedData) SessionStateBadge(localizedString("Cached"), Color(0xFFFF9500))
+                        if (session.isSessionReadOnly) SessionStateBadge(localizedString("Read-only"), MaterialTheme.colorScheme.secondary)
                         metadata?.let {
                             Text(
                                 text = it,
@@ -1403,22 +1405,23 @@ private fun SessionRow(
             ) {
                 if (session.archived == true) MiniBadge("Archived")
                 if (session.isActiveStreaming) MiniBadge("Streaming", tint = MaterialTheme.colorScheme.primary)
+                if (session.isSessionReadOnly) MiniBadge("Read-only", tint = MaterialTheme.colorScheme.secondary)
                 HermexPillButton(localizedString("Copy Full Title"), onCopyTitle, enabled = true)
-                HermexPillButton(localizedString(if (session.pinned == true) "Unpin" else "Pin"), onPin, enabled = !isMutating)
-                HermexPillButton(localizedString(if (session.archived == true) "Restore" else "Archive"), onArchive, enabled = !isMutating)
-                HermexPillButton(localizedString("Rename"), onRename, enabled = !isMutating)
-                HermexPillButton(localizedString("Branch"), onBranch, enabled = !isMutating)
-                HermexPillButton(localizedString("Duplicate"), onDuplicate, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
+                HermexPillButton(localizedString(if (session.pinned == true) "Unpin" else "Pin"), onPin, enabled = mutationActionsEnabled)
+                HermexPillButton(localizedString(if (session.archived == true) "Restore" else "Archive"), onArchive, enabled = mutationActionsEnabled)
+                HermexPillButton(localizedString("Rename"), onRename, enabled = mutationActionsEnabled)
+                HermexPillButton(localizedString("Branch"), onBranch, enabled = mutationActionsEnabled)
+                HermexPillButton(localizedString("Duplicate"), onDuplicate, enabled = mutationActionsEnabled && !isViewingCachedData && session.sessionId != null)
                 HermexPillButton(localizedString("Export HTML"), { onExport(SessionExportFormat.Html) }, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
                 HermexPillButton(localizedString("Export JSON"), { onExport(SessionExportFormat.Json) }, enabled = !isMutating && !isViewingCachedData && session.sessionId != null)
-                HermexPillButton(localizedString("Delete"), onDelete, enabled = !isMutating)
-                HermexPillButton(localizedString("No project"), { onMove(null) }, enabled = !isMutating && session.projectId != null)
+                HermexPillButton(localizedString("Delete"), onDelete, enabled = mutationActionsEnabled)
+                HermexPillButton(localizedString("No project"), { onMove(null) }, enabled = mutationActionsEnabled && session.projectId != null)
                 projects.forEach { project ->
                     val projectId = project.projectId
                     HermexPillButton(
                         label = if (session.projectId == projectId) "In ${project.displayName}" else "Move ${project.displayName}",
                         onClick = { if (projectId != null) onMove(projectId) },
-                        enabled = !isMutating && projectId != null && session.projectId != projectId,
+                        enabled = mutationActionsEnabled && projectId != null && session.projectId != projectId,
                     )
                 }
             }
