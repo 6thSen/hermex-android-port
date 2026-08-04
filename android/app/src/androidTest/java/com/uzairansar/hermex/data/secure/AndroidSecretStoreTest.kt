@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,5 +78,6 @@ class AndroidSecretStoreTest {
 
         assertEquals("legacy-secret", store.getString("servers"))
         assertEquals("legacy-secret", AndroidSecretStore(context).getString("servers"))
+        assertTrue(context.getSharedPreferences("hermex_secure", Context.MODE_PRIVATE).all.isEmpty())
     }
 }

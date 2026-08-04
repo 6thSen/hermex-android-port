@@ -13,7 +13,7 @@ internal fun Context.createExportDirectory(prefix: String): File {
         .filter(File::isDirectory)
         .sortedByDescending(File::lastModified)
         .forEachIndexed { index, directory ->
-            if (directory.lastModified() < cutoff || index >= EXPORT_DIRECTORY_LIMIT) {
+            if (directory.lastModified() < cutoff || index >= EXPORT_DIRECTORY_LIMIT - 1) {
                 runCatching { directory.deleteRecursively() }
             }
         }

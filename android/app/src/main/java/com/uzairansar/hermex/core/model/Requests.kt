@@ -156,6 +156,7 @@ data class ClarifyRespondRequest(
 @Serializable
 data class DefaultModelRequest(
     val model: String,
+    val provider: String? = null,
 )
 
 @Serializable
@@ -191,6 +192,7 @@ data class CronCreateRequest(
     val deliver: String? = null,
     val skills: List<String> = emptyList(),
     val model: String? = null,
+    val provider: String? = null,
     val profile: String? = null,
     @SerialName("toast_notifications") val toastNotifications: Boolean,
 )
@@ -204,6 +206,7 @@ data class CronUpdateRequest(
     val deliver: String? = null,
     val skills: List<String>? = null,
     val model: String? = null,
+    val provider: String? = null,
     val profile: String? = null,
     @SerialName("toast_notifications") val toastNotifications: Boolean? = null,
 )

@@ -14,11 +14,16 @@ import com.uzairansar.hermex.core.model.ProfilesResponse
 import com.uzairansar.hermex.core.model.ProviderSummary
 import com.uzairansar.hermex.core.model.SettingsResponse
 import com.uzairansar.hermex.core.model.UpdatesCheckResponse
+import com.uzairansar.hermex.core.model.isConfirmedDefaultModel
+import com.uzairansar.hermex.core.model.isConfirmedProfileSwitch
+import com.uzairansar.hermex.core.model.isConfirmedMutation
+import com.uzairansar.hermex.core.model.isConfirmedShowCliSessions
 import com.uzairansar.hermex.core.network.CustomHeader
 import com.uzairansar.hermex.core.network.parseCustomHeaderLines
 import com.uzairansar.hermex.data.repository.AddServerResult
 import com.uzairansar.hermex.data.repository.AuthState
 import com.uzairansar.hermex.data.preferences.modelIdentifier
+import com.uzairansar.hermex.data.preferences.normalizedProvider
 import com.uzairansar.hermex.data.preferences.AppThemeMode
 import com.uzairansar.hermex.data.preferences.ChatDisplaySettings
 import com.uzairansar.hermex.data.preferences.LocalSettingsRepository
@@ -84,6 +89,7 @@ data class SettingsUiState(
     val models: List<ModelSummary> = emptyList(),
     val modelProviders: List<ProviderSummary> = emptyList(),
     val defaultModel: String? = null,
+    val defaultModelProvider: String? = null,
     val profiles: List<ProfileSummary> = emptyList(),
     val activeProfile: String? = null,
     val isSingleProfileMode: Boolean = false,
@@ -440,7 +446,8 @@ class SettingsViewModel(
                     isLoadingServerSettings = false,
                     models = modelsResult.getOrNull()?.models.orEmpty(),
                     modelProviders = modelsResult.getOrNull()?.providers.orEmpty(),
-                    defaultModel = modelsResult.getOrNull()?.defaultModel,
+                    defaultModel = settings?.defaultModel ?: modelsResult.getOrNull()?.defaultModel,
+                    defaultModelProvider = settings?.defaultModelProvider ?: modelsResult.getOrNull()?.activeProvider,
                     profiles = profilesResult.getOrNull()?.profiles.orEmpty(),
                     activeProfile = profilesResult.getOrNull()?.effectiveDefaultProfileName(),
                     isSingleProfileMode = profilesResult.getOrNull()?.singleProfileMode == true,
@@ -485,6 +492,18 @@ class SettingsViewModel(
             runSuspendCatching { repository.updateSettings(showCliSessions = enabled) }
                 .onSuccess { response ->
                     if (generation != cliSessionsSaveGeneration) return@onSuccess
+                    if (!response.isConfirmedShowCliSessions(enabled)) {
+                        localSettingsRepository.setShowCliSessions(serverId, previous)
+                        _state.update {
+                            it.copy(
+                                showCliSessions = previous,
+                                isSavingCliSessions = false,
+                                cliSessionsError = "The server did not confirm the session visibility change.",
+                                error = "The server did not confirm the session visibility change.",
+                            )
+                        }
+                        return@onSuccess
+                    }
                     response.showCliSessions?.let { serverValue ->
                         localSettingsRepository.setShowCliSessions(serverId, serverValue)
                     }
@@ -1192,12 +1211,13 @@ class SettingsViewModel(
             runSuspendCatching { repository.switchProfile(name) }
                 .onSuccess { response ->
                     val responseError = response.error?.trim()?.takeIf { it.isNotBlank() }
-                    if (responseError != null) {
+                    if (responseError != null || !response.isConfirmedProfileSwitch(name)) {
+                        val message = responseError ?: "The server did not confirm the profile change."
                         _state.update {
                             it.copy(
                                 isSavingDefaultProfile = false,
-                                defaultProfilePickerError = responseError,
-                                error = responseError,
+                                defaultProfilePickerError = message,
+                                error = message,
                             )
                         }
                         return@onSuccess
@@ -1213,6 +1233,7 @@ class SettingsViewModel(
                             profiles = profiles,
                             activeProfile = resolved,
                             defaultModel = response.defaultModel ?: it.defaultModel,
+                            defaultModelProvider = response.defaultModelProvider ?: it.defaultModelProvider,
                             notice = "Default profile saved.",
                             defaultProfilePickerError = null,
                             error = null,
@@ -1227,19 +1248,23 @@ class SettingsViewModel(
     }
 
     fun saveDefaultModel(model: ModelSummary) {
-        saveDefaultModelId(model.modelIdentifier.orEmpty())
+        saveDefaultModelId(model.modelIdentifier.orEmpty(), model.normalizedProvider)
     }
 
     fun saveDefaultModelId(rawModelId: String) {
+        saveDefaultModelId(rawModelId, providerId = null)
+    }
+
+    private fun saveDefaultModelId(rawModelId: String, providerId: String?) {
         val repository = panelsRepository ?: return
         val id = rawModelId.trim()
         if (id.isBlank()) return
         viewModelScope.launch {
             _state.update { it.copy(isSavingDefaultModel = true, error = null, notice = null) }
-            runSuspendCatching { repository.saveDefaultModel(id) }
+            runSuspendCatching { repository.saveDefaultModel(id, providerId) }
                 .onSuccess { response ->
                     val responseError = response.error?.trim()?.takeIf { it.isNotBlank() }
-                    if (responseError != null || response.ok == false) {
+                    if (responseError != null || !response.isConfirmedDefaultModel(providerId)) {
                         val message = responseError ?: "The server did not confirm the change."
                         _state.update {
                             it.copy(
@@ -1255,6 +1280,7 @@ class SettingsViewModel(
                             isSavingDefaultModel = false,
                             showDefaultModelPicker = false,
                             defaultModel = response.model ?: id,
+                            defaultModelProvider = response.provider ?: providerId,
                             notice = "Default model saved.",
                             defaultModelPickerError = null,
                             error = null,
@@ -1354,12 +1380,13 @@ class SettingsViewModel(
             }
                 .onSuccess { response ->
                     val responseError = response.error?.trim()?.takeIf { it.isNotBlank() }
-                    if (responseError != null) {
+                    if (responseError != null || !response.isConfirmedMutation()) {
+                        val message = responseError ?: "The server did not confirm profile creation."
                         _state.update {
                             it.copy(
                                 isCreatingProfile = false,
-                                profileCreateError = responseError,
-                                error = responseError,
+                                profileCreateError = message,
+                                error = message,
                             )
                         }
                         return@onSuccess

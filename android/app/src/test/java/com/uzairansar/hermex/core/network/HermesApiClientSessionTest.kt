@@ -417,7 +417,7 @@ class HermesApiClientSessionTest {
                 MockResponse.Builder()
                     .code(200)
                     .addHeader("Content-Type", "application/json")
-                    .body("""{"active":"work","default_model":"gpt-5.5","default_workspace":"/workspace","profiles":[{"name":"work","is_active":true}]}""")
+                    .body("""{"active":"work","default_model":"gpt-5.5","default_model_provider":"openai-codex","default_workspace":"/workspace","profiles":[{"name":"work","is_active":true}]}""")
                     .build(),
             )
 
@@ -427,6 +427,7 @@ class HermesApiClientSessionTest {
             val request = server.takeRequest()
             assertEquals("work", response.active)
             assertEquals("gpt-5.5", response.defaultModel)
+            assertEquals("openai-codex", response.defaultModelProvider)
             assertEquals("/workspace", response.defaultWorkspace)
             assertEquals(true, response.profiles?.single()?.isActive)
             assertEquals("/api/profile/switch", request.url.encodedPath)

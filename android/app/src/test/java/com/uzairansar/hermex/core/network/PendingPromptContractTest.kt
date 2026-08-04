@@ -8,6 +8,7 @@ import com.uzairansar.hermex.core.model.CompressSessionRequest
 import com.uzairansar.hermex.core.model.CronCreateRequest
 import com.uzairansar.hermex.core.model.CronJobIdRequest
 import com.uzairansar.hermex.core.model.CronUpdateRequest
+import com.uzairansar.hermex.core.model.DefaultModelRequest
 import com.uzairansar.hermex.core.model.GitCheckoutRequest
 import com.uzairansar.hermex.core.model.GoalRequest
 import com.uzairansar.hermex.core.model.MemoryWriteRequest
@@ -114,6 +115,7 @@ class PendingPromptContractTest {
                 deliver = "local",
                 skills = listOf("summarizer", "calendar"),
                 model = "gpt-5",
+                provider = "openai-codex",
                 profile = "default",
                 toastNotifications = true,
             ),
@@ -124,6 +126,7 @@ class PendingPromptContractTest {
         assertTrue(body.contains(""""name":"Morning summary""""))
         assertTrue(body.contains(""""deliver":"local""""))
         assertTrue(body.contains(""""skills":["summarizer","calendar"]"""))
+        assertTrue(body.contains(""""provider":"openai-codex"""))
         assertTrue(body.contains(""""toast_notifications":true"""))
     }
 
@@ -136,6 +139,7 @@ class PendingPromptContractTest {
                 schedule = "@daily",
                 name = null,
                 skills = emptyList(),
+                provider = "openai-codex",
                 toastNotifications = false,
             ),
         )
@@ -144,8 +148,17 @@ class PendingPromptContractTest {
         assertTrue(body.contains(""""prompt":"Updated prompt.""""))
         assertTrue(body.contains(""""schedule":"@daily""""))
         assertTrue(body.contains(""""skills":[]"""))
+        assertTrue(body.contains(""""provider":"openai-codex"""))
         assertTrue(body.contains(""""toast_notifications":false"""))
         assertFalse(body.contains(""""name""""))
+    }
+
+    @Test
+    fun defaultModelRequestPreservesProviderIdentity() {
+        val body = HermesJson.encodeToString(DefaultModelRequest(model = "gpt-5", provider = "openai-codex"))
+
+        assertTrue(body.contains(""""model":"gpt-5"""))
+        assertTrue(body.contains(""""provider":"openai-codex"""))
     }
 
     @Test

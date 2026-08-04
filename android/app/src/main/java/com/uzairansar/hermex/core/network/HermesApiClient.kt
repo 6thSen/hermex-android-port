@@ -237,7 +237,8 @@ class HermesApiClient(
     suspend fun personalities(): PersonalitiesResponse = get(Endpoint.Personalities)
     suspend fun setPersonality(sessionId: String, name: String): PersonalitySetResponse =
         post(Endpoint.SetPersonality, SetPersonalityRequest(sessionId, name))
-    suspend fun defaultModel(model: String): DefaultModelResponse = post(Endpoint.DefaultModel, DefaultModelRequest(model))
+    suspend fun defaultModel(model: String, provider: String? = null): DefaultModelResponse =
+        post(Endpoint.DefaultModel, DefaultModelRequest(model, provider))
     suspend fun insights(days: Int): InsightsResponse = get(Endpoint.Insights(days))
     suspend fun crons(): CronsResponse = get(Endpoint.Crons)
     suspend fun createCron(request: CronCreateRequest): CronMutationResponse = post(Endpoint.CronCreate, request)

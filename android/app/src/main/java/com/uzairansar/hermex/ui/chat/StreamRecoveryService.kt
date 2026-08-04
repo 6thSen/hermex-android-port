@@ -160,7 +160,11 @@ class StreamRecoveryService : Service() {
     }
 
     private fun stopIfNoActiveJobs() {
-        if (jobs.isNotEmpty()) return
+        val records = store.records()
+        if (!streamRecoveryShouldStop(jobs.size, records.size)) {
+            records.firstOrNull()?.let(::ensureForeground)
+            return
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -344,6 +348,9 @@ internal fun streamRecoveryRetryDelayMillis(consecutiveFailures: Int): Long {
 }
 
 internal fun streamRecoveryShouldRetry(consecutiveFailures: Int): Boolean = consecutiveFailures > 0
+
+internal fun streamRecoveryShouldStop(activeJobCount: Int, durableRecordCount: Int): Boolean =
+    activeJobCount == 0 && durableRecordCount == 0
 
 internal fun streamRecoveryRecordExpired(startedAtMillis: Long, nowMillis: Long): Boolean =
     nowMillis - startedAtMillis >= MAX_STREAM_RECOVERY_AGE_MILLIS

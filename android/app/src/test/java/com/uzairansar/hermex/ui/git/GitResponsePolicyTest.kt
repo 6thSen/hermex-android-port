@@ -18,10 +18,14 @@ class GitResponsePolicyTest {
     }
 
     @Test
-    fun serverErrorTakesPriorityAndSuccessfulOrLegacyResponsesPass() {
+    fun serverErrorTakesPriorityAndAffirmativeLegacyResponsesPass() {
         assertEquals("server reason", GitMutationResponse(ok = false, error = " server reason ").failureMessage("fallback"))
         assertNull(GitMutationResponse(ok = true).failureMessage("fallback"))
-        assertNull(GitMutationResponse(ok = null).failureMessage("fallback"))
+        assertNull(GitMutationResponse(message = "Fetched").failureMessage("fallback"))
+        assertEquals("fallback", GitMutationResponse().failureMessage("fallback"))
+        assertEquals("fallback", GitCommitResponse().failureMessage("fallback"))
+        assertEquals("fallback", GitCommitMessageResponse().failureMessage("fallback"))
+        assertEquals("fallback", GitCheckoutResponse().failureMessage("fallback"))
     }
 
     @Test

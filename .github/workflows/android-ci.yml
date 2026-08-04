@@ -5,7 +5,12 @@ on:
     paths:
       - android/**
       - ci/endpoint_parity.py
+      - ci/generate_android_localization_catalog.py
+      - ci/migrate_android_compose_literals.py
+      - ci/android_localization_aliases.json
+      - ci/android_supplemental_localizations.json
       - HermesMobile/Networking/Endpoints.swift
+      - HermesMobile/Resources/Localizable.xcstrings
       - .github/workflows/android-ci.yml
   push:
     branches:
@@ -13,7 +18,12 @@ on:
     paths:
       - android/**
       - ci/endpoint_parity.py
+      - ci/generate_android_localization_catalog.py
+      - ci/migrate_android_compose_literals.py
+      - ci/android_localization_aliases.json
+      - ci/android_supplemental_localizations.json
       - HermesMobile/Networking/Endpoints.swift
+      - HermesMobile/Resources/Localizable.xcstrings
       - .github/workflows/android-ci.yml
 
 permissions:

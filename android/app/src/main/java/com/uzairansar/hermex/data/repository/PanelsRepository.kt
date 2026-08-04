@@ -33,7 +33,7 @@ class PanelsRepository(private val client: HermesApiClient) {
     suspend fun applyUpdate(target: String = "webui"): UpdatesApplyResponse = client.applyUpdate(target)
     suspend fun models(): ModelCatalogResponse = client.models()
     suspend fun modelsLive(): ModelsLiveResponse = client.modelsLive()
-    suspend fun saveDefaultModel(model: String): DefaultModelResponse = client.defaultModel(model)
+    suspend fun saveDefaultModel(model: String, provider: String? = null): DefaultModelResponse = client.defaultModel(model, provider)
     suspend fun profiles(): ProfilesResponse = client.profiles()
     suspend fun switchProfile(profile: String): ProfileSwitchResponse = client.switchProfile(profile)
     suspend fun createProfile(

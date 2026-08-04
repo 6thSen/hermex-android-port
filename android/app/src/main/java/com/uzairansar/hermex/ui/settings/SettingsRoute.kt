@@ -90,6 +90,7 @@ import androidx.core.content.ContextCompat
 import com.uzairansar.hermex.R
 import com.uzairansar.hermex.data.preferences.displayModelTitle
 import com.uzairansar.hermex.data.preferences.modelIdentifier
+import com.uzairansar.hermex.data.preferences.normalizedProvider
 import com.uzairansar.hermex.data.preferences.AppThemeMode
 import com.uzairansar.hermex.data.preferences.LocalSettingsRepository
 import com.uzairansar.hermex.data.preferences.StreamingSendBehavior
@@ -1502,7 +1503,8 @@ private fun DefaultModelPickerDialog(
                         group.models.forEach { model ->
                             DefaultModelOptionRow(
                                 model = model,
-                                selected = model.modelIdentifier == state.defaultModel,
+                                selected = model.modelIdentifier == state.defaultModel &&
+                                    (state.defaultModelProvider == null || model.normalizedProvider == state.defaultModelProvider),
                                 enabled = !state.isSavingDefaultModel,
                                 onClick = { onSaveModel(model) },
                             )
@@ -2075,7 +2077,11 @@ private fun Color.luminanceValue(): Float =
 
 private fun defaultModelLabel(state: SettingsUiState): String {
     val modelId = state.defaultModel?.trim()?.takeIf { it.isNotBlank() } ?: return "Server default"
-    return state.models.firstOrNull { it.modelIdentifier == modelId }?.displayModelTitle ?: modelId
+    val model = state.models.firstOrNull {
+        it.modelIdentifier == modelId &&
+            (state.defaultModelProvider == null || it.normalizedProvider == state.defaultModelProvider)
+    }
+    return model?.displayModelTitle ?: listOfNotNull(modelId, state.defaultModelProvider?.let { "($it)" }).joinToString(" ")
 }
 
 private fun defaultProfileLabel(state: SettingsUiState): String {

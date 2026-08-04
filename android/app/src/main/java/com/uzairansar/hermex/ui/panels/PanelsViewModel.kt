@@ -13,6 +13,7 @@ import com.uzairansar.hermex.core.model.MemoryResponse
 import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.core.model.SkillContentResponse
 import com.uzairansar.hermex.core.model.SkillSummary
+import com.uzairansar.hermex.core.model.isConfirmedMutation
 import com.uzairansar.hermex.data.repository.PanelsRepository
 import com.uzairansar.hermex.core.network.HermesJson
 import com.uzairansar.hermex.ui.SavedStatePolicy
@@ -39,6 +40,7 @@ data class CronTaskDraft(
     val deliver: String = "local",
     val skillsText: String = "",
     val model: String = "",
+    val provider: String = "",
     val profile: String = "",
     val toastNotifications: Boolean = true,
 ) {
@@ -297,8 +299,7 @@ class PanelsViewModel(
                 !response.error.isNullOrBlank() -> response.error
                 response.ok == false && response.status == "already_running" ->
                     "Task is already running${response.elapsed?.let { " (${String.format(java.util.Locale.US, "%.1f", it)}s)" }.orEmpty()}."
-                response.ok == false -> "The server could not start this task."
-                else -> null
+                else -> response.mutationError("The server could not start this task.")
             }
         }
     }
@@ -378,6 +379,7 @@ class PanelsViewModel(
                     deliver = job.deliver ?: "local",
                     skillsText = job.skills.orEmpty().joinToString(", "),
                     model = job.model.orEmpty(),
+                    provider = job.provider.orEmpty(),
                     profile = job.profile.orEmpty(),
                     toastNotifications = job.toastNotifications ?: true,
             ),
@@ -418,6 +420,7 @@ class PanelsViewModel(
                         deliver = draft.deliver.trim().ifBlank { null },
                         skills = draft.skills,
                         model = draft.model.trim().ifBlank { null },
+                        provider = draft.provider.trim().ifBlank { null },
                         profile = draft.profile.trim().ifBlank { null },
                         toastNotifications = draft.toastNotifications,
                     ),
@@ -431,6 +434,7 @@ class PanelsViewModel(
                         deliver = draft.deliver.trim().ifBlank { null },
                         skills = draft.skills,
                         model = draft.model.trim().ifBlank { null },
+                        provider = draft.provider.trim().ifBlank { null },
                         profile = draft.profile.trim().ifBlank { null },
                         toastNotifications = draft.toastNotifications,
                     ),
@@ -578,7 +582,11 @@ class PanelsViewModel(
             }
             runSuspendCatching { repository.toggleSkill(name, enable) }
                 .onSuccess { response ->
-                    if (response.error == null && response.ok != false) {
+                    val confirmed = response.error.isNullOrBlank() && response.ok != false && (
+                        response.ok == true ||
+                            (response.name?.trim() == name && response.enabled == enable)
+                        )
+                    if (confirmed) {
                         _state.update {
                             it.copy(
                                 togglingSkillNames = it.togglingSkillNames - name,
@@ -650,7 +658,8 @@ class PanelsViewModel(
                 _state.update { it.copy(editingMemorySection = null) }
             },
         ) {
-            repository.writeMemory(section, content).error
+            val response = repository.writeMemory(section, content)
+            if (response.isConfirmedMutation()) null else response.error ?: "The server did not confirm the memory update."
         }
     }
 
@@ -709,6 +718,7 @@ private fun CronTaskDraft.boundedForPersistence(): CronTaskDraft = copy(
     deliver = SavedStatePolicy.boundedInput(deliver),
     skillsText = SavedStatePolicy.boundedInput(skillsText),
     model = SavedStatePolicy.boundedInput(model),
+    provider = SavedStatePolicy.boundedInput(provider),
     profile = SavedStatePolicy.boundedInput(profile),
 )
 
@@ -719,7 +729,7 @@ val CronJob.serverJobId: String?
     get() = jobId ?: id
 
 private fun com.uzairansar.hermex.core.model.CronMutationResponse.mutationError(fallback: String): String? =
-    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeIf { ok == false }
+    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeUnless { isConfirmedMutation() }
 
 val CronJob.displayName: String
     get() = name?.takeIf { it.isNotBlank() }

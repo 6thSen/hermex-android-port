@@ -29,6 +29,7 @@ import androidx.compose.ui.test.down
 import androidx.compose.ui.test.moveBy
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.up
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
@@ -814,6 +815,12 @@ class HermexUiFlowTest {
                                     event: done
                                     data: {"session_id":"s1"}
 
+                                    event: title
+                                    data: {"session_id":"s1","title":"Post-done title"}
+
+                                    event: stream_end
+                                    data: {}
+
                                     """.trimIndent(),
                                 )
                             }
@@ -881,6 +888,20 @@ class HermexUiFlowTest {
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Mobile") }
         composeRule.onNodeWithText("GPT-5").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Choose Model") }
+        val pickerBeforeScroll = composeRule
+            .onNodeWithTag("picker_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        composeRule.onNodeWithTag("model_picker_list").performTouchInput { swipeUp() }
+        composeRule.waitForIdle()
+        Thread.sleep(250)
+        composeRule.waitForIdle()
+        val pickerAfterScroll = composeRule
+            .onNodeWithTag("picker_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(abs(pickerAfterScroll.top - pickerBeforeScroll.top) <= 1f)
+        assertTrue(abs(pickerAfterScroll.bottom - pickerBeforeScroll.bottom) <= 1f)
         composeRule.onNodeWithText("Search models").performTextInput("gpt-4o")
         composeRule.onNodeWithTag("model_picker_list").performScrollToNode(hasSemanticsText("GPT-4o"))
         composeRule.onNodeWithText("GPT-4o").performClick()
@@ -925,6 +946,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithContentDescription("Message").performTextInput("Hello Android")
         composeRule.onNodeWithContentDescription("Send").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Mock response") }
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Post-done title") }
 
         composeRule.onNodeWithText("Mock response").assertExists()
         val topBarBounds = composeRule.onNodeWithTag("chat_top_bar").fetchSemanticsNode().boundsInRoot
@@ -1445,7 +1467,7 @@ class HermexUiFlowTest {
 
     @Test
     fun panelsRouteGroupsAndSearchesSkillsLikeIos() {
-        val longSkillContent = (1..24).joinToString("\\n\\n") { section ->
+        val longSkillContent = (1..1_600).joinToString("\\n\\n") { section ->
             "Section $section: detailed skill guidance for scrolling stability."
         }
         val mockServer = MockWebServer().also { server ->
@@ -1558,6 +1580,7 @@ class HermexUiFlowTest {
 
     @Test
     fun panelsRouteShowsTaskMetadataLikeIos() {
+        val longTaskOutput = (1..80).joinToString("\\n") { line -> "Output line $line" }
         val mockServer = MockWebServer().also { server ->
             server.dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -1575,9 +1598,10 @@ class HermexUiFlowTest {
                                   "running": true,
                                   "next_run_at": "2026-07-06T09:00:00Z",
                                   "last_run_at": "2026-07-05T09:00:00Z",
-                                  "deliver": "local",
-                                  "model": "gpt-5",
-                                  "profile": "review",
+                                   "deliver": "local",
+                                   "model": "gpt-5",
+                                   "provider": "openai-codex",
+                                   "profile": "review",
                                   "skills": ["code-review", "summary"]
                                 }
                               ]
@@ -1585,6 +1609,9 @@ class HermexUiFlowTest {
                             """.trimIndent(),
                         )
                         "/api/crons/status" -> json("""{"running_jobs":{}}""")
+                        "/api/crons/output" -> json(
+                            """{"job_id":"job-1","outputs":[{"filename":"latest.md","content":"$longTaskOutput"}]}""",
+                        )
                         "/api/skills" -> json("""{"skills":[]}""")
                         "/api/insights" -> json("""{"period_days":30,"total_sessions":0,"total_messages":0,"total_tokens":0}""")
                         else -> MockResponse.Builder().code(404).body("""{"error":"unexpected"}""").build()
@@ -1624,6 +1651,28 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("review").assertIsDisplayed()
         composeRule.onNodeWithText("Skills").assertIsDisplayed()
         composeRule.onNodeWithText("code-review, summary").assertIsDisplayed()
+        composeRule.onNodeWithText("Morning Review").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("task_detail_scroll", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule
+            .onNodeWithTag("task_detail_scroll", useUnmergedTree = true)
+            .performScrollToNode(hasSemanticsText("openai-codex"))
+        composeRule.onNodeWithText("openai-codex").assertIsDisplayed()
+        val taskSheetBeforeScroll = composeRule
+            .onNodeWithTag("task_detail_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        composeRule.onNodeWithTag("task_detail_scroll", useUnmergedTree = true).performTouchInput { swipeUp() }
+        composeRule.waitForIdle()
+        Thread.sleep(250)
+        composeRule.waitForIdle()
+        val taskSheetAfterScroll = composeRule
+            .onNodeWithTag("task_detail_sheet", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(abs(taskSheetAfterScroll.top - taskSheetBeforeScroll.top) <= 1f)
+        assertTrue(abs(taskSheetAfterScroll.bottom - taskSheetBeforeScroll.bottom) <= 1f)
     }
 
     @Test

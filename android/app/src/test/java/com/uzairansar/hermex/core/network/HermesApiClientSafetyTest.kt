@@ -116,10 +116,11 @@ class HermesApiClientSafetyTest {
                     .build(),
             )
             HermesApiClient(server.url("/"), OkHttpClient()).updateCron(
-                CronUpdateRequest(jobId = "job-1", model = null, profile = null),
+                CronUpdateRequest(jobId = "job-1", model = null, provider = null, profile = null),
             )
             val body = server.takeRequest().body?.utf8().orEmpty()
             assertTrue(body.contains("\"model\":null"))
+            assertTrue(body.contains("\"provider\":null"))
             assertTrue(body.contains("\"profile\":null"))
         } finally {
             server.close()

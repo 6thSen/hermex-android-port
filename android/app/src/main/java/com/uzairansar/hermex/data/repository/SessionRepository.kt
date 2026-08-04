@@ -11,6 +11,7 @@ import com.uzairansar.hermex.core.model.SessionExportFormat
 import com.uzairansar.hermex.core.model.SessionMutationResponse
 import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.core.model.SessionUsageResponse
+import com.uzairansar.hermex.core.model.isConfirmedMutation
 import com.uzairansar.hermex.core.network.HermesApiClient
 import com.uzairansar.hermex.core.network.ApiError
 import com.uzairansar.hermex.data.db.CacheDao
@@ -82,7 +83,7 @@ class SessionRepository(
     suspend fun rename(sessionId: String, title: String): SessionMutationResponse {
         val cacheGeneration = cacheOwnership.generation(serverUrl)
         val response = client.renameSession(sessionId, title)
-        if (response.isSuccessfulMutation()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.writeIfCurrent(serverUrl, cacheGeneration) {
                 cacheDao.updateSessionTitle(serverUrl, sessionId, title)
             }
@@ -92,7 +93,7 @@ class SessionRepository(
 
     suspend fun clear(sessionId: String): SessionClearResponse {
         val response = client.clearSession(sessionId)
-        if (response.ok != false && response.error.isNullOrBlank()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.invalidateAndClear(serverUrl) {
                 cacheDao.deleteCachedSessionMessages(serverUrl, sessionId)
             }
@@ -102,7 +103,7 @@ class SessionRepository(
 
     suspend fun delete(sessionId: String): SessionMutationResponse {
         val response = client.deleteSession(sessionId)
-        if (response.isSuccessfulMutation()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.invalidateAndClear(serverUrl) {
                 cacheDao.purgeSession(serverUrl, sessionId)
             }
@@ -113,7 +114,7 @@ class SessionRepository(
     suspend fun pin(sessionId: String, pinned: Boolean): SessionMutationResponse {
         val cacheGeneration = cacheOwnership.generation(serverUrl)
         val response = client.pinSession(sessionId, pinned)
-        if (response.isSuccessfulMutation()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.writeIfCurrent(serverUrl, cacheGeneration) {
                 cacheDao.updateSessionPinned(serverUrl, sessionId, pinned)
             }
@@ -124,7 +125,7 @@ class SessionRepository(
     suspend fun archive(sessionId: String, archived: Boolean): SessionMutationResponse {
         val cacheGeneration = cacheOwnership.generation(serverUrl)
         val response = client.archiveSession(sessionId, archived)
-        if (response.isSuccessfulMutation()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.writeIfCurrent(serverUrl, cacheGeneration) {
                 cacheDao.updateSessionArchived(serverUrl, sessionId, archived)
             }
@@ -135,7 +136,7 @@ class SessionRepository(
     suspend fun move(sessionId: String, projectId: String?): SessionMutationResponse {
         val cacheGeneration = cacheOwnership.generation(serverUrl)
         val response = client.moveSession(sessionId, projectId)
-        if (response.isSuccessfulMutation()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.writeIfCurrent(serverUrl, cacheGeneration) {
                 cacheDao.updateSessionProject(serverUrl, sessionId, projectId)
             }
@@ -159,9 +160,6 @@ class SessionRepository(
 }
 
 private const val ARCHIVED_SYNC_LIMIT = 2_000
-
-private fun com.uzairansar.hermex.core.model.SessionMutationResponse.isSuccessfulMutation(): Boolean =
-    ok != false && error.isNullOrBlank()
 
 private fun Throwable.isCacheFallbackEligible(): Boolean = when (this) {
     is ApiError.Network -> true

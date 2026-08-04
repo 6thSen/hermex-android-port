@@ -36,11 +36,7 @@ class PersistentCookieJar(
 
     fun clear(url: HttpUrl) {
         synchronized(lock) {
-            val host = url.host.lowercase()
-            persist(readAll(url).filterNot { record ->
-                val domain = record.domain.lowercase().trimStart('.')
-                host == domain || host.endsWith(".$domain") || domain.endsWith(".$host")
-            })
+            persist(readAll(url).filterNot { record -> record.toCookie()?.matches(url) == true })
             secretStore.remove(legacyKeyFor(url))
         }
     }

@@ -71,6 +71,21 @@ class PersistentCookieJarTest {
 
         assertTrue(jar.loadForRequest(url).isEmpty())
     }
+
+    @Test
+    fun clearingParentServerPreservesHostOnlySubdomainCookie() {
+        val jar = PersistentCookieJar(ConcurrentSecretStore())
+        val parentUrl = "https://example.test/".toHttpUrl()
+        val childUrl = "https://hermes.example.test/".toHttpUrl()
+        jar.saveFromResponse(
+            childUrl,
+            listOf(Cookie.Builder().name("child-session").value("token").hostOnlyDomain(childUrl.host).path("/").build()),
+        )
+
+        jar.clear(parentUrl)
+
+        assertEquals("child-session", jar.loadForRequest(childUrl).single().name)
+    }
 }
 
 private class ConcurrentSecretStore : SecretStore {
