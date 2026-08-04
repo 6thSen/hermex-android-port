@@ -61,6 +61,23 @@ final class TranscriptMediaParserTests: XCTestCase {
         )
     }
 
+    func testKeepsClosingMarkdownEmphasisOutsideToken() {
+        let segments = TranscriptMediaParser.segments(
+            in: "**MEDIA:/tmp/agyloop-plan.md** and _MEDIA:/tmp/trade_journal.csv_"
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                .text("**"),
+                .media(.init(rawReference: "/tmp/agyloop-plan.md")),
+                .text("** and _"),
+                .media(.init(rawReference: "/tmp/trade_journal.csv")),
+                .text("_")
+            ]
+        )
+    }
+
     func testParsesMultipleTokens() {
         let segments = TranscriptMediaParser.segments(
             in: "A MEDIA:/tmp/a.png\nB MEDIA:/tmp/b.jpg"
@@ -95,8 +112,106 @@ final class TranscriptMediaParserTests: XCTestCase {
         XCTAssertEqual(media?.isRasterImageCandidate, false)
     }
 
+    func testDetectsAudioAndVideoMediaKinds() {
+        let references = [
+            TranscriptMediaReference(rawReference: "/tmp/output.mp3"),
+            TranscriptMediaReference(rawReference: "/tmp/output.m4a"),
+            TranscriptMediaReference(rawReference: "/tmp/output.wav"),
+            TranscriptMediaReference(rawReference: "/tmp/output.aac"),
+            TranscriptMediaReference(rawReference: "/tmp/output.caf"),
+            TranscriptMediaReference(rawReference: "https://cdn.example.test/output.mp4?download=1"),
+            TranscriptMediaReference(rawReference: "/tmp/output.mov"),
+            TranscriptMediaReference(rawReference: "/tmp/output.m4v")
+        ]
+
+        XCTAssertEqual(references[0].mediaKind, .audio)
+        XCTAssertEqual(references[1].mediaKind, .audio)
+        XCTAssertEqual(references[2].mediaKind, .audio)
+        XCTAssertEqual(references[3].mediaKind, .audio)
+        XCTAssertEqual(references[4].mediaKind, .audio)
+        XCTAssertEqual(references[5].mediaKind, .video)
+        XCTAssertEqual(references[6].mediaKind, .video)
+        XCTAssertEqual(references[7].mediaKind, .video)
+    }
+
+    func testUnsupportedTextAndDataFilesAreClassifiedAsUnsupported() {
+        let references = [
+            TranscriptMediaReference(rawReference: "/tmp/report.txt"),
+            TranscriptMediaReference(rawReference: "/tmp/data.csv"),
+            TranscriptMediaReference(rawReference: "/tmp/notes.md"),
+            TranscriptMediaReference(rawReference: "/tmp/config.json"),
+            TranscriptMediaReference(rawReference: "/tmp/archive.zip"),
+        ]
+
+        for reference in references {
+            XCTAssertEqual(reference.mediaKind, .unsupported, "\(reference.rawReference) must be .unsupported")
+        }
+    }
+
+    func testUnsupportedFileExportPayloadKeepsOriginalNameAndExtension() {
+        let reference = TranscriptMediaReference(rawReference: "/tmp/report.txt")
+        let data = "hello".data(using: .utf8)!
+
+        let payload = TranscriptMediaExportSupport.payload(
+            for: reference,
+            data: data,
+            resolvedKind: .data
+        )
+
+        XCTAssertEqual(payload.filename, "report.txt")
+        XCTAssertEqual(payload.data, data)
+        XCTAssertFalse(payload.isImage)
+        XCTAssertFalse(payload.isVideo)
+    }
+
+    func testExtensionlessUnsupportedFileExportsAsDataNotVideo() {
+        let reference = TranscriptMediaReference(rawReference: "/tmp/results")
+        let data = "binary".data(using: .utf8)!
+
+        let payload = TranscriptMediaExportSupport.payload(
+            for: reference,
+            data: data,
+            resolvedKind: .data
+        )
+
+        XCTAssertEqual(payload.filename, "results.bin")
+        XCTAssertEqual(payload.contentType, .data)
+        XCTAssertFalse(payload.isImage)
+        XCTAssertFalse(payload.isVideo)
+    }
+
+    func testExtensionlessRemoteReferenceRemainsImageCandidateButCanFallbackToMedia() throws {
+        let remoteURL = try XCTUnwrap(URL(string: "https://cdn.example.test/media/abc123"))
+        let reference = TranscriptMediaReference(rawReference: remoteURL.absoluteString)
+
+        XCTAssertEqual(reference.source, .remoteURL(remoteURL))
+        XCTAssertEqual(reference.mediaKind, .image)
+        XCTAssertTrue(reference.isRasterImageCandidate)
+        XCTAssertTrue(reference.isExtensionlessRemoteMediaCandidate)
+    }
+
     func testEmptyReferenceDisplayNameFallsBackToMedia() {
         XCTAssertEqual(TranscriptMediaReference(rawReference: "").displayName, "Media")
+    }
+
+    func testImageCacheKeySeparatesSameReferenceAcrossSessions() {
+        let reference = TranscriptMediaReference(rawReference: "/tmp/result.png")
+
+        let firstSessionKey = TranscriptMediaImageCacheKey(
+            namespace: "https://one.example.test|session-a",
+            reference: reference
+        )
+        let secondSessionKey = TranscriptMediaImageCacheKey(
+            namespace: "https://one.example.test|session-b",
+            reference: reference
+        )
+        let secondServerKey = TranscriptMediaImageCacheKey(
+            namespace: "https://two.example.test|session-a",
+            reference: reference
+        )
+
+        XCTAssertNotEqual(firstSessionKey, secondSessionKey)
+        XCTAssertNotEqual(firstSessionKey, secondServerKey)
     }
 
     private func mediaReferences(in segments: [TranscriptMediaSegment]) -> [TranscriptMediaReference] {

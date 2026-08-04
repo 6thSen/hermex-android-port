@@ -5,6 +5,13 @@ enum TranscriptMediaSource: Equatable {
     case remoteURL(URL)
 }
 
+enum TranscriptMediaKind: Equatable {
+    case image
+    case audio
+    case video
+    case unsupported
+}
+
 struct TranscriptMediaReference: Equatable, Identifiable {
     let rawReference: String
 
@@ -38,16 +45,43 @@ struct TranscriptMediaReference: Equatable, Identifiable {
         }
     }
 
-    var isRasterImageCandidate: Bool {
+    var mediaKind: TranscriptMediaKind {
         let ext = pathExtension
         if Self.rasterImageExtensions.contains(ext) {
-            return true
+            return .image
+        }
+
+        if Self.audioExtensions.contains(ext) {
+            return .audio
+        }
+
+        if Self.videoExtensions.contains(ext) {
+            return .video
         }
 
         if case .remoteURL = source, ext.isEmpty {
-            return true
+            return .image
         }
 
+        return .unsupported
+    }
+
+    var isRasterImageCandidate: Bool {
+        mediaKind == .image
+    }
+
+    var isAudioCandidate: Bool {
+        mediaKind == .audio
+    }
+
+    var isVideoCandidate: Bool {
+        mediaKind == .video
+    }
+
+    var isExtensionlessRemoteMediaCandidate: Bool {
+        if case .remoteURL = source, pathExtension.isEmpty {
+            return true
+        }
         return false
     }
 
@@ -62,6 +96,14 @@ struct TranscriptMediaReference: Equatable, Identifiable {
 
     private static let rasterImageExtensions: Set<String> = [
         "bmp", "gif", "heic", "heif", "ico", "jpg", "jpeg", "png", "tif", "tiff", "webp"
+    ]
+
+    private static let audioExtensions: Set<String> = [
+        "aac", "caf", "m4a", "mp3", "wav"
+    ]
+
+    private static let videoExtensions: Set<String> = [
+        "m4v", "mov", "mp4"
     ]
 }
 
@@ -109,7 +151,11 @@ enum TranscriptMediaParser {
 
         while cursor < line.endIndex {
             if line[cursor...].hasPrefix("MEDIA:"),
-               let referenceRange = referenceRange(in: line, from: line.index(cursor, offsetBy: 6)) {
+               let referenceRange = referenceRange(
+                   in: line,
+                   markerStart: cursor,
+                   from: line.index(cursor, offsetBy: 6)
+               ) {
                 appendText(String(line[textStart..<cursor]), to: &segments)
 
                 let reference = TranscriptMediaReference(rawReference: String(line[referenceRange]))
@@ -136,7 +182,11 @@ enum TranscriptMediaParser {
         }
     }
 
-    private static func referenceRange(in line: String, from start: String.Index) -> Range<String.Index>? {
+    private static func referenceRange(
+        in line: String,
+        markerStart: String.Index,
+        from start: String.Index
+    ) -> Range<String.Index>? {
         guard start < line.endIndex else { return nil }
 
         var end = start
@@ -154,8 +204,34 @@ enum TranscriptMediaParser {
             }
         }
 
+        if let delimiter = emphasisDelimiter(in: line, immediatelyBefore: markerStart),
+           line[start..<trimmedEnd].hasSuffix(delimiter) {
+            trimmedEnd = line.index(trimmedEnd, offsetBy: -delimiter.count)
+        }
+
         guard trimmedEnd > start else { return nil }
         return start..<trimmedEnd
+    }
+
+    private static func emphasisDelimiter(
+        in line: String,
+        immediatelyBefore index: String.Index
+    ) -> String? {
+        for delimiter in ["***", "___", "**", "__", "*", "_"] {
+            guard let delimiterStart = line.index(
+                index,
+                offsetBy: -delimiter.count,
+                limitedBy: line.startIndex
+            ) else {
+                continue
+            }
+
+            if line[delimiterStart..<index] == delimiter {
+                return delimiter
+            }
+        }
+
+        return nil
     }
 
     private static func isReferenceTerminator(_ character: Character) -> Bool {

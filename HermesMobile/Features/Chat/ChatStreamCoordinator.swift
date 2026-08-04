@@ -90,6 +90,7 @@ final class ChatStreamCoordinator {
     private(set) var hasCompletedCurrentResponse = false
     private(set) var lastEventID: String?
     private(set) var lastProgressDate: Date?
+    private(set) var liveTokensPerSecond: Double?
     private var lastRecoveryStatusCheckDate: Date?
     private(set) var isReplayConnection = false
     // Bumped whenever the active run starts or finalizes. Captured before an async
@@ -127,6 +128,7 @@ final class ChatStreamCoordinator {
     func prepareForNewResponse() {
         hasCompletedCurrentResponse = false
         isConnectionSuspended = false
+        liveTokensPerSecond = nil
     }
 
     func start(
@@ -135,6 +137,7 @@ final class ChatStreamCoordinator {
         recoveryState: ActiveStreamRecoveryState = .idle
     ) {
         hasCompletedCurrentResponse = false
+        liveTokensPerSecond = nil
         runGeneration &+= 1
         activeStreamID = streamID
         isConnectionSuspended = false
@@ -200,6 +203,7 @@ final class ChatStreamCoordinator {
     }
 
     func prepareForSessionLoad() -> ChatStreamLoadPreparation {
+        liveTokensPerSecond = nil
         let activeStreamIDBeforeLoad = activeStreamID
         if activeStreamIDBeforeLoad != nil, !hasCompletedCurrentResponse {
             delegate?.streamCoordinatorSaveSnapshotIfNeeded()
@@ -217,6 +221,7 @@ final class ChatStreamCoordinator {
         usedCacheFallback: Bool
     ) {
         hasCompletedCurrentResponse = false
+        liveTokensPerSecond = nil
 
         if usedCacheFallback {
             activeStreamID = nil
@@ -293,6 +298,14 @@ final class ChatStreamCoordinator {
                 finalizeInactiveStream(streamID: activeStreamID)
             }
         } catch {
+            if (error as? APIError)?.indicatesMissingStream == true,
+               self.activeStreamID == activeStreamID,
+               isConnectionSuspended {
+                await delegate?.streamCoordinatorLoadMessages(modelContext: modelContext)
+                guard canFinalizeRunAfterLoad(streamID: activeStreamID, capturedGeneration: generation) else { return }
+                finalizeInactiveStream(streamID: activeStreamID)
+                return
+            }
             delegate?.streamCoordinatorDidReceiveRecoveryError(error)
         }
     }
@@ -447,6 +460,11 @@ final class ChatStreamCoordinator {
             if delegate?.streamCoordinatorUpdateTitle(payload) == true {
                 markProgress()
             }
+        case .metering(let payload):
+            guard payload.sessionId == nil || payload.sessionId == delegate?.streamCoordinatorSessionID else {
+                break
+            }
+            liveTokensPerSecond = payload.displayableTokensPerSecond
         case .done(let payload):
             let hasCompletedTranscript = delegate?.streamCoordinatorApplyDone(payload) == true
             completeCurrentResponse(needsTranscriptRefresh: !hasCompletedTranscript)
@@ -484,6 +502,7 @@ final class ChatStreamCoordinator {
     }
 
     private func handleTransportError(_ message: String) {
+        liveTokensPerSecond = nil
         guard activeStreamID != nil, !hasCompletedCurrentResponse else {
             if !hasCompletedCurrentResponse {
                 delegate?.streamCoordinatorDidReceiveErrorMessage(message)
@@ -550,6 +569,16 @@ final class ChatStreamCoordinator {
                 "Stale stream recovery status check failed category=\(APIError.privacySafeLogCategory(for: error), privacy: .public)"
             )
 
+            if (error as? APIError)?.indicatesMissingStream == true,
+               activeStreamID == expectedStreamID,
+               !isConnectionSuspended {
+                await delegate?.streamCoordinatorLoadMessages(modelContext: modelContext)
+                guard canFinalizeRunAfterLoad(streamID: expectedStreamID, capturedGeneration: generation),
+                      !isConnectionSuspended else { return }
+                finalizeInactiveStream(streamID: expectedStreamID)
+                return
+            }
+
             guard forceReconnect,
                   activeStreamID == expectedStreamID,
                   !isConnectionSuspended
@@ -586,6 +615,7 @@ final class ChatStreamCoordinator {
         delegate?.streamCoordinatorStopAuxiliaryMonitoring(clearPrompt: true)
         activeStreamID = nil
         lastEventID = nil
+        liveTokensPerSecond = nil
         delegate?.streamCoordinatorStreamingAssistantMessageID = nil
         hasCompletedCurrentResponse = true
         delegate?.streamCoordinatorDidCompleteCurrentResponse(needsTranscriptRefresh: needsTranscriptRefresh)
@@ -639,6 +669,7 @@ final class ChatStreamCoordinator {
         delegate?.streamCoordinatorRemoveSnapshot(streamID: finishedStreamID)
         activeStreamID = nil
         lastEventID = nil
+        liveTokensPerSecond = nil
         delegate?.streamCoordinatorStreamingAssistantMessageID = nil
         hasCompletedCurrentResponse = false
         delegate?.streamCoordinatorDidFinishStream()
