@@ -701,6 +701,7 @@ private fun saveWorkspaceImageToGallery(
 ): String {
     val resolver = context.contentResolver
     val fileName = preview.galleryFileName()
+    val bytes = preview.bytes ?: return "This image is not loaded."
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
         put(MediaStore.MediaColumns.MIME_TYPE, preview.mimeType)
@@ -714,7 +715,6 @@ private fun saveWorkspaceImageToGallery(
     }.getOrNull() ?: return "Could not save image."
 
     return try {
-        val bytes = preview.bytes ?: return "This image is not loaded."
         resolver.openOutputStream(uri)?.use { output -> output.write(bytes) }
             ?: error("Could not open gallery item.")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

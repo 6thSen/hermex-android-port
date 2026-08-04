@@ -13,6 +13,50 @@ import org.junit.Test
 
 class SseStreamClientIntegrationTest {
     @Test
+    fun continuesDeliveringMetadataUntilStreamEndAfterDone() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "text/event-stream")
+                    .body(
+                        """
+                        event: done
+                        data: {"session_id":"s1"}
+
+                        event: title
+                        data: {"session_id":"s1","title":"Post-done title"}
+
+                        event: stream_end
+                        data: {}
+
+                        """.trimIndent(),
+                    )
+                    .build(),
+            )
+
+            val events = withTimeout(5_000) {
+                SseStreamClient(server.url("/"), OkHttpClient()) { emptyList() }
+                    .stream(server.url("/api/chat/stream?stream_id=stream-1"))
+                    .toList()
+            }
+
+            assertEquals(
+                listOf(
+                    SseEvent.Done(sessionId = "s1", usage = null, session = null),
+                    SseEvent.Title(sessionId = "s1", title = "Post-done title"),
+                    SseEvent.StreamEnd,
+                ),
+                events,
+            )
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
     fun deliversEventsAndClassifiesNormalActiveStreamCloseAsRecoverable() = runBlocking {
         val server = MockWebServer()
         try {

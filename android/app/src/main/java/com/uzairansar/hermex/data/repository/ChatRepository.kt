@@ -33,6 +33,7 @@ import com.uzairansar.hermex.core.model.WorkspacesResponse
 import com.uzairansar.hermex.core.model.compressionAnchorMetadata
 import com.uzairansar.hermex.core.model.contextWindowSnapshot
 import com.uzairansar.hermex.core.model.hasOlderMessages
+import com.uzairansar.hermex.core.model.isConfirmedMutation
 import com.uzairansar.hermex.core.model.resolvedMessagesOffset
 import com.uzairansar.hermex.core.network.HermesApiClient
 import com.uzairansar.hermex.core.network.ApiError
@@ -198,7 +199,7 @@ class ChatRepository(
     suspend fun compressSession(sessionId: String, focusTopic: String?) = run {
         val operationGeneration = cacheOwnership.generation(serverUrl)
         client.compressSession(sessionId, focusTopic).also { response ->
-            if (response.ok != false && response.error.isNullOrBlank()) {
+            if (response.isConfirmedMutation()) {
                 response.session?.let { session ->
                     val resolvedSessionId = session.sessionId?.takeIf { it.isNotBlank() } ?: sessionId
                     replaceCachedMessages(resolvedSessionId, session.messages.orEmpty(), generation = operationGeneration)
@@ -211,7 +212,7 @@ class ChatRepository(
     suspend fun renameSession(sessionId: String, title: String): SessionMutationResponse {
         val operationGeneration = cacheOwnership.generation(serverUrl)
         val response = client.renameSession(sessionId, title)
-        if (response.ok != false && response.error.isNullOrBlank()) {
+        if (response.isConfirmedMutation()) {
             cacheOwnership.writeIfCurrent(serverUrl, operationGeneration) {
                 cacheDao.updateSessionTitle(serverUrl, sessionId, title)
             }
@@ -244,7 +245,7 @@ class ChatRepository(
     suspend fun clearSessionSnapshot(sessionId: String): ChatSessionClearResult {
         val response = client.clearSession(sessionId)
         val error = response.error?.trim()?.takeIf { it.isNotBlank() }
-        if (response.ok == false || error != null) {
+        if (!response.isConfirmedMutation()) {
             return ChatSessionClearResult(error = error ?: "The server could not clear this conversation.")
         }
 

@@ -54,7 +54,10 @@ class AndroidSecretStore(context: Context) : SecretStore {
     private fun loadSecretsOrMigrate(): Map<String, String> {
         preferences.getString(PAYLOAD_KEY, null)?.let(::decryptPayload)?.let { return it }
         val migrated = migrateLegacyPreferences()
-        if (migrated.isNotEmpty()) persist(migrated)
+        if (migrated.isNotEmpty()) {
+            persist(migrated)
+            clearLegacyStorage()
+        }
         return migrated
     }
 
@@ -110,6 +113,14 @@ class AndroidSecretStore(context: Context) : SecretStore {
         return createLegacyPreferences().all.mapNotNull { (key, value) ->
             (value as? String)?.let { key to it }
         }.toMap()
+    }
+
+    private fun clearLegacyStorage() {
+        runCatching { appContext.deleteSharedPreferences(LEGACY_PREFERENCES_NAME) }
+        runCatching {
+            val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+            if (keyStore.containsAlias(LEGACY_KEY_ALIAS)) keyStore.deleteEntry(LEGACY_KEY_ALIAS)
+        }
     }
 
     @Suppress("DEPRECATION")

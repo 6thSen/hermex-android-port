@@ -34,6 +34,10 @@ import com.uzairansar.hermex.core.model.WorkspaceRoot
 import com.uzairansar.hermex.core.model.WorkspacesResponse
 import com.uzairansar.hermex.core.model.compressionAnchorMetadata
 import com.uzairansar.hermex.core.model.contextWindowSnapshot
+import com.uzairansar.hermex.core.model.isConfirmedClarification
+import com.uzairansar.hermex.core.model.isConfirmedMutation
+import com.uzairansar.hermex.core.model.isConfirmedPersonalityMutation
+import com.uzairansar.hermex.core.model.isConfirmedYoloMutation
 import com.uzairansar.hermex.core.network.SseEvent
 import com.uzairansar.hermex.core.network.HermesJson
 import com.uzairansar.hermex.data.repository.ChatSessionSnapshot
@@ -110,6 +114,14 @@ internal object StreamRecoveryBackoffPolicy {
 internal object AttachmentLimitPolicy {
     fun remaining(maximum: Int, attached: Int, uploadsInFlight: Int): Int =
         (maximum - attached - uploadsInFlight).coerceAtLeast(0)
+}
+
+internal object ChatDraftPersistencePolicy {
+    const val DebounceMillis = 300L
+    const val MaximumPersistedCharacters = 64 * 1_024
+
+    fun persistedDraft(value: String): String =
+        value.takeIf { it.length <= MaximumPersistedCharacters }.orEmpty()
 }
 
 internal object QueuedDraftRegistry {
@@ -355,6 +367,8 @@ class ChatViewModel internal constructor(
     private var pendingStreamingAssistantText: String = ""
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
+    private var completedResponseStreamId: String? = null
+    private var completedResponseTitleOverride: String? = null
     private var sendStartJob: Job? = null
     private var sendStartGeneration = 0L
     private var cancelledSendStartGeneration: Long? = null
@@ -380,6 +394,7 @@ class ChatViewModel internal constructor(
     private var pendingPromptJob: Job? = null
     private var workspaceSuggestionsJob: Job? = null
     private var workspaceSuggestionsGeneration = 0L
+    private var draftPersistenceJob: Job? = null
     private val backgroundPromptsByTaskId = mutableMapOf<String, BackgroundTaskState>()
     private val pendingLocalUploads = linkedMapOf<String, PendingLocalAttachmentUpload>()
     private val queuedSlashMessages = ArrayDeque<QueuedDraft>()
@@ -407,13 +422,20 @@ class ChatViewModel internal constructor(
 
     fun updateDraft(value: String) {
         _state.update { it.copy(draft = value, error = null, notice = null) }
-        persistPendingState()
+        draftPersistenceJob?.cancel()
+        draftPersistenceJob = viewModelScope.launch {
+            delay(ChatDraftPersistencePolicy.DebounceMillis)
+            persistPendingState()
+            draftPersistenceJob = null
+        }
     }
     fun updateClarificationDraft(value: String) = _state.update { it.copy(clarificationDraft = value, error = null) }
     fun consumeOpenSession() = _state.update { it.copy(openSessionId = null) }
 
     override fun onCleared() {
         isClearing = true
+        draftPersistenceJob?.cancel()
+        runCatching { persistPendingState(durable = true) }
         streamJob?.cancel()
         streamPacingJob?.cancel()
         streamRecoveryJob?.cancel()
@@ -1416,8 +1438,8 @@ class ChatViewModel internal constructor(
     fun undoLastExchange() {
         sessionAction("Undo is available after the current response finishes.") {
             val response = repository.undoSession(sessionId)
-            if (response.error != null) {
-                SessionActionResult(error = response.error)
+            if (!response.isConfirmedMutation()) {
+                SessionActionResult(error = response.error ?: "The server did not confirm the undo.")
             } else {
                 load()
                 SessionActionResult(notice = "Undid ${response.removedCount ?: 1} message(s).")
@@ -1434,8 +1456,13 @@ class ChatViewModel internal constructor(
             _state.update { it.copy(isRunningSessionAction = true, error = null, notice = null) }
             runSuspendCatching { repository.retrySession(sessionId) }
                 .onSuccess { response ->
-                    if (response.error != null) {
-                        _state.update { it.copy(isRunningSessionAction = false, error = response.error) }
+                    if (!response.isConfirmedMutation()) {
+                        _state.update {
+                            it.copy(
+                                isRunningSessionAction = false,
+                                error = response.error ?: "The server did not confirm the retry.",
+                            )
+                        }
                         return@onSuccess
                     }
                     val lastUserText = response.lastUserText?.trim().orEmpty()
@@ -1649,8 +1676,8 @@ class ChatViewModel internal constructor(
     fun compressContext(focusTopic: String? = null) {
         sessionAction("Wait for the current response to finish before compressing context.") {
             val response = repository.compressSession(sessionId, focusTopic?.trim()?.ifBlank { null })
-            if (response.error != null) {
-                SessionActionResult(error = response.error)
+            if (!response.isConfirmedMutation()) {
+                SessionActionResult(error = response.error ?: "The server did not confirm context compression.")
             } else {
                 response.session?.let { session ->
                     val messages = session.messages.orEmpty()
@@ -1932,9 +1959,9 @@ class ChatViewModel internal constructor(
             val cancelError = runSuspendCatching { repository.cancel(streamId) }
                 .fold(
                     onSuccess = { response ->
-                        completedBeforeCancellation = response.cancelled == false && response.error.isNullOrBlank()
+                        completedBeforeCancellation = response.isConfirmedMutation() && response.cancelled == false
                         response.error?.takeIf { it.isNotBlank() }
-                            ?: if (response.ok == false) "The server could not cancel this response." else null
+                            ?: if (!response.isConfirmedMutation()) "The server could not cancel this response." else null
                     },
                     onFailure = { it.message ?: "Could not cancel the response." },
                 )
@@ -1975,7 +2002,7 @@ class ChatViewModel internal constructor(
         withContext(NonCancellable + Dispatchers.IO) {
             val response = runSuspendCatching { repository.cancel(streamId) }.getOrNull()
             repository.clearStreamCursor(streamId)
-            response?.cancelled == false && response.error.isNullOrBlank()
+            response?.isConfirmedMutation() == true && response.cancelled == false
         }
 
     private fun discardActiveStreamAfterSessionClear() {
@@ -2114,7 +2141,7 @@ class ChatViewModel internal constructor(
                     val kickoff = response.kickoffPrompt?.trim().orEmpty()
                     val responseError = response.error?.takeIf { it.isNotBlank() }
                     val responseSessionId = response.sessionId?.trim()?.takeIf { it.isNotBlank() }
-                    if (response.ok == false || response.action.equals("error", ignoreCase = true) || responseError != null) {
+                    if (!response.isConfirmedMutation()) {
                         _state.update {
                             it.copy(
                                 isRunningSessionAction = false,
@@ -2399,6 +2426,15 @@ class ChatViewModel internal constructor(
             _state.update { it.copy(isRunningSessionAction = true, draft = "", error = null, notice = null) }
             runSuspendCatching { repository.renameSession(sessionId, title) }
                 .onSuccess { response ->
+                    if (!response.isConfirmedMutation()) {
+                        _state.update {
+                            it.copy(
+                                isRunningSessionAction = false,
+                                error = response.error ?: "The server did not confirm the title change.",
+                            )
+                        }
+                        return@onSuccess
+                    }
                     val newTitle = response.session?.title?.trim()?.takeIf { it.isNotBlank() } ?: title
                     _state.update {
                         it.copy(
@@ -2480,7 +2516,7 @@ class ChatViewModel internal constructor(
                     return@launch
                 }
                 val cancelError = cancelResponse.error?.takeIf { it.isNotBlank() }
-                    ?: if (cancelResponse.ok == false) "Could not stop the previous side question." else null
+                    ?: if (!cancelResponse.isConfirmedMutation()) "Could not stop the previous side question." else null
                 if (cancelError != null) {
                     _state.update { it.copy(isRunningSessionAction = false, error = cancelError) }
                     return@launch
@@ -2550,7 +2586,7 @@ class ChatViewModel internal constructor(
                         btwStreamOwnerId = null
                         btwJob = null
                     }
-                    SseEvent.Cancelled -> {
+                    is SseEvent.Cancelled -> {
                         updateLocalAssistant(messageId, btwMessageText(question, answer, isLoading = false))
                         persistBtwTask(null)
                         btwStreamOwnerId = null
@@ -2685,7 +2721,7 @@ class ChatViewModel internal constructor(
     private fun persistPendingState(durable: Boolean = false) {
         pendingStateStore?.save(
             PersistedChatPendingState(
-                draft = _state.value.draft,
+                draft = ChatDraftPersistencePolicy.persistedDraft(_state.value.draft),
                 pendingAttachments = _state.value.pendingAttachments,
                 pendingLocalUploads = pendingLocalUploads.values.toList(),
                 queuedDrafts = queuedSlashMessages.toList(),
@@ -2777,8 +2813,14 @@ class ChatViewModel internal constructor(
             _state.update { it.copy(isRunningSessionAction = true, draft = "", error = null, notice = null) }
             runSuspendCatching { repository.setPersonality(sessionId, name) }
                 .onSuccess { response ->
-                    if (response.error != null) {
-                        _state.update { it.copy(isRunningSessionAction = false, error = response.error) }
+                    if (!response.isConfirmedPersonalityMutation(name)) {
+                        _state.update {
+                            it.copy(
+                                isRunningSessionAction = false,
+                                error = response.error?.takeIf { message -> message.isNotBlank() }
+                                    ?: "The server did not confirm the personality change.",
+                            )
+                        }
                         return@onSuccess
                     }
                     _state.update { it.copy(isRunningSessionAction = false) }
@@ -2839,7 +2881,7 @@ class ChatViewModel internal constructor(
             runSuspendCatching {
                 repository.respondApproval(sessionId, choice, approval.normalizedApprovalId)
             }.onSuccess { response ->
-                if (response.ok == false && response.staleCleared != true && response.staleClearedSnake != true) {
+                if (!response.isConfirmedMutation()) {
                     _state.update {
                         it.copy(
                             isRespondingToPendingPrompt = false,
@@ -2871,7 +2913,7 @@ class ChatViewModel internal constructor(
             runSuspendCatching { repository.setSessionYolo(sessionId, enabled = true) }
                 .onSuccess { response ->
                     val responseError = response.error?.takeIf { it.isNotBlank() }
-                    if (response.ok == false || responseError != null) {
+                    if (!response.isConfirmedYoloMutation(enabled = true)) {
                         _state.update {
                             it.copy(
                                 isRespondingToPendingPrompt = false,
@@ -2882,7 +2924,7 @@ class ChatViewModel internal constructor(
                     }
                     _state.update {
                         it.copy(
-                            isSessionApprovalBypassEnabled = response.yoloEnabled ?: response.yoloEnabledSnake ?: true,
+                            isSessionApprovalBypassEnabled = true,
                             pendingApproval = null,
                             pendingApprovalCount = 0,
                             isRespondingToPendingPrompt = false,
@@ -2924,6 +2966,16 @@ class ChatViewModel internal constructor(
             runSuspendCatching {
                 repository.respondClarification(sessionId, trimmed, clarification.normalizedClarifyId)
             }.onSuccess { serverResponse ->
+                if (!serverResponse.isConfirmedClarification(trimmed)) {
+                    _state.update {
+                        it.copy(
+                            isRespondingToPendingPrompt = false,
+                            error = "The server did not accept that clarification response.",
+                        )
+                    }
+                    refreshPendingPrompts()
+                    return@onSuccess
+                }
                 _state.update {
                     it.copy(
                         pendingClarification = null,
@@ -2945,6 +2997,9 @@ class ChatViewModel internal constructor(
         replayAfterSeq: Int? = null,
         cancelRecovery: Boolean = true,
     ) {
+        if (completedResponseStreamId != streamId) {
+            completedResponseTitleOverride = null
+        }
         if (cancelRecovery) {
             streamRecoveryJob?.cancel()
             streamRecoveryJob = null
@@ -2961,6 +3016,9 @@ class ChatViewModel internal constructor(
         streamJob = viewModelScope.launch {
             repository.stream(streamId, replayAfterSeq)
                 .onCompletion { cause ->
+                    if (completedResponseStreamId == streamId) {
+                        completedResponseStreamId = null
+                    }
                     if (
                         !_state.value.isRecoveringStream &&
                         ChatStreamRecoveryPolicy.shouldRecoverAfterFlowCompletion(
@@ -2974,7 +3032,7 @@ class ChatViewModel internal constructor(
                     }
                 }
                 .collect { event ->
-                if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return@collect
+                if (!ownsStreamTransport(streamId)) return@collect
                 when (event) {
                     is SseEvent.Token -> {
                         val tokenText = if (replayAfterSeq == 0) {
@@ -3014,6 +3072,7 @@ class ChatViewModel internal constructor(
                         clearStreamRecoveryState()
                         if (event.sessionId.isNullOrBlank() || event.sessionId == sessionId) {
                             event.title?.trim()?.takeIf { it.isNotBlank() }?.let { title ->
+                                completedResponseTitleOverride = title
                                 _state.update { it.copy(sessionTitle = title) }
                             }
                         }
@@ -3024,17 +3083,31 @@ class ChatViewModel internal constructor(
                     }
                     SseEvent.StreamEnd -> {
                         flushPendingStreamingAssistant()
-                        finishStream(
-                            needsTranscriptRefresh = assistantText.isBlank() || reconcileFinalTranscriptForStreamId == streamId,
-                        )
+                        if (completedResponseStreamId == streamId) {
+                            finishCompletedStreamTransport(streamId)
+                        } else {
+                            finishStream(
+                                needsTranscriptRefresh = assistantText.isBlank() || reconcileFinalTranscriptForStreamId == streamId,
+                            )
+                        }
                     }
-                    SseEvent.Cancelled -> {
+                    is SseEvent.Cancelled -> {
                         flushPendingStreamingAssistant()
-                        finishTerminalStream(streamId)
+                        reconcileTerminalStream(
+                            streamId = streamId,
+                            session = event.session,
+                            replacementSessionId = event.replacementSessionId,
+                            error = null,
+                        )
                     }
                     is SseEvent.Error -> {
                         flushPendingStreamingAssistant()
-                        finishTerminalStream(streamId, event.message)
+                        reconcileTerminalStream(
+                            streamId = streamId,
+                            session = event.session,
+                            replacementSessionId = event.replacementSessionId,
+                            error = event.displayMessage,
+                        )
                     }
                     is SseEvent.TransportError -> {
                         flushPendingStreamingAssistant()
@@ -3359,9 +3432,10 @@ class ChatViewModel internal constructor(
     }
 
     private fun finishTerminalStream(streamId: String, error: String? = null) {
-        if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
+        if (!ownsStreamTransport(streamId)) return
         flushPendingStreamingAssistant()
         if (reconcileFinalTranscriptForStreamId == streamId) reconcileFinalTranscriptForStreamId = null
+        if (completedResponseStreamId == streamId) completedResponseStreamId = null
         repository.clearStreamCursor(streamId)
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
@@ -3383,19 +3457,22 @@ class ChatViewModel internal constructor(
     private suspend fun completeStream(streamId: String, event: SseEvent.Done) {
         if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
         flushPendingStreamingAssistant()
-        val completedSession = event.session?.takeIf { completed ->
-            completed.sessionId.isNullOrBlank() || completed.sessionId == sessionId
-        }
+        val completedSession = event.session
         val completedTranscript = completedSession?.takeIf { it.messages?.isNotEmpty() == true }
         if (completedTranscript != null) {
             val snapshot = repository.snapshotFromCompletedSession(sessionId, completedTranscript, streamId)
             if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
-            applySessionSnapshot(snapshot) {
-                it.copy(
-                    isStreaming = false,
-                    activeStreamId = null,
-                    responseCompletionNeedsTranscriptRefresh = false,
-                )
+            val completedSessionId = completedTranscript.sessionId?.trim()?.takeIf { it.isNotBlank() }
+            if (completedSessionId == null || completedSessionId == sessionId) {
+                applySessionSnapshot(snapshot) {
+                    it.copy(
+                        isStreaming = true,
+                        activeStreamId = streamId,
+                        responseCompletionNeedsTranscriptRefresh = false,
+                    )
+                }
+            } else {
+                _state.update { it.copy(openSessionId = completedSessionId) }
             }
         }
         event.usage?.let { usage ->
@@ -3403,21 +3480,93 @@ class ChatViewModel internal constructor(
             _state.update { it.copy(contextWindowSnapshot = usage) }
         }
         if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
-        finishStream(needsTranscriptRefresh = completedTranscript == null)
+        completeCurrentResponse(streamId, needsTranscriptRefresh = completedTranscript == null)
+    }
+
+    private suspend fun reconcileTerminalStream(
+        streamId: String,
+        session: com.uzairansar.hermex.core.model.SessionDetail?,
+        replacementSessionId: String?,
+        error: String?,
+    ) {
+        if (!ownsStreamTransport(streamId)) return
+        val resolvedSessionId = replacementSessionId?.trim()?.takeIf { it.isNotBlank() }
+            ?: session?.sessionId?.trim()?.takeIf { it.isNotBlank() }
+        if (session != null) {
+            val snapshot = repository.snapshotFromCompletedSession(sessionId, session, streamId)
+            if (!ownsStreamTransport(streamId)) return
+            if (resolvedSessionId == null || resolvedSessionId == sessionId) {
+                applySessionSnapshot(snapshot) {
+                    it.copy(isStreaming = true, activeStreamId = streamId)
+                }
+            }
+        }
+        if (resolvedSessionId != null && resolvedSessionId != sessionId) {
+            _state.update { it.copy(openSessionId = resolvedSessionId) }
+        }
+        finishTerminalStream(streamId, error)
+    }
+
+    private fun completeCurrentResponse(streamId: String, needsTranscriptRefresh: Boolean) {
+        if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
+        completedResponseStreamId = streamId
+        reconcileFinalTranscriptForStreamId = null
+        repository.clearStreamCursor(streamId)
+        streamRecoveryJob?.cancel()
+        streamRecoveryJob = null
+        streamRecoveryAttempt = 0
+        stopPendingPromptPolling(clearPrompts = true)
+        _state.update {
+            it.copy(
+                isStreaming = false,
+                activeStreamRecoveryState = ActiveStreamRecoveryState.Idle,
+                activeStreamId = null,
+                responseCompletionTrigger = it.responseCompletionTrigger + 1,
+                responseCompletionNeedsTranscriptRefresh = needsTranscriptRefresh,
+                liveReasoning = "",
+                liveToolActivity = null,
+                pendingApproval = null,
+                pendingClarification = null,
+            )
+        }
+        drainQueuedSlashMessageIfIdle()
+    }
+
+    private fun finishCompletedStreamTransport(streamId: String) {
+        if (completedResponseStreamId != streamId) return
+        completedResponseStreamId = null
+        streamJob = null
     }
 
     fun refreshCompletedTranscriptIfNeeded() {
         if (!_state.value.responseCompletionNeedsTranscriptRefresh) return
         if (completedTranscriptRefreshJob?.isActive == true) return
+        val completionTrigger = _state.value.responseCompletionTrigger
         completedTranscriptRefreshJob = viewModelScope.launch {
             repeat(COMPLETED_TRANSCRIPT_REFRESH_ATTEMPTS) { attempt ->
-                if (!_state.value.responseCompletionNeedsTranscriptRefresh) return@launch
+                if (
+                    !_state.value.responseCompletionNeedsTranscriptRefresh ||
+                    _state.value.responseCompletionTrigger != completionTrigger ||
+                    _state.value.isStreaming
+                ) {
+                    return@launch
+                }
                 when (val result = repository.loadSessionSnapshot(sessionId)) {
                     is ResultState.Data -> {
+                        if (
+                            _state.value.responseCompletionTrigger != completionTrigger ||
+                            _state.value.isStreaming
+                        ) {
+                            return@launch
+                        }
                         if (!result.fromCache && result.value.messages.hasAssistantResponseAfterLatestUser()) {
                             applySessionSnapshot(result.value, fromCache = false) {
-                                it.copy(responseCompletionNeedsTranscriptRefresh = false)
+                                it.copy(
+                                    sessionTitle = completedResponseTitleOverride ?: it.sessionTitle,
+                                    responseCompletionNeedsTranscriptRefresh = false,
+                                )
                             }
+                            completedResponseTitleOverride = null
                             return@launch
                         }
                     }
@@ -3433,6 +3582,7 @@ class ChatViewModel internal constructor(
     private fun finishStream(needsTranscriptRefresh: Boolean = false) {
         flushPendingStreamingAssistant()
         reconcileFinalTranscriptForStreamId = null
+        completedResponseStreamId = null
         _state.value.activeStreamId?.let(repository::clearStreamCursor)
         streamJob?.cancel()
         streamRecoveryJob?.cancel()
@@ -3454,6 +3604,20 @@ class ChatViewModel internal constructor(
         }
         drainQueuedSlashMessageIfIdle()
     }
+
+    private fun ownsStreamTransport(streamId: String): Boolean =
+        ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId) ||
+            completedResponseStreamId == streamId
+
+    private val SseEvent.Error.displayMessage: String
+        get() = listOfNotNull(
+            message.trim().takeIf { it.isNotBlank() },
+            hint?.trim()?.takeIf { it.isNotBlank() },
+            details?.trim()?.takeIf { it.isNotBlank() && it != message.trim() },
+        )
+            .distinct()
+            .joinToString("\n\n")
+            .take(MAXIMUM_STREAM_ERROR_CHARACTERS)
 
     private fun List<ChatMessage>.hasAssistantResponseAfterLatestUser(): Boolean {
         val latestUserIndex = indexOfLast { it.role == "user" }
@@ -3647,6 +3811,7 @@ private fun File.isInside(directory: File): Boolean {
         const val STREAM_RECOVERY_RETRY_DELAY_MS = 750L
         const val STREAM_RECOVERY_MAX_DELAY_MS = 12_000L
         const val MAXIMUM_STREAM_RECOVERY_ATTEMPTS = 6
+        const val MAXIMUM_STREAM_ERROR_CHARACTERS = 4_000
         const val COMPLETED_TRANSCRIPT_REFRESH_DELAY_MS = 500L
         const val COMPLETED_TRANSCRIPT_REFRESH_ATTEMPTS = 6
         const val STREAMING_INITIAL_REVEAL_DELAY_MS = 16L

@@ -8,13 +8,13 @@
 
 Your server. Your phone. No middleman.
 
-[![Release 1.0.4](https://img.shields.io/badge/release-1.0.4-2F6B4F)](https://github.com/Hungbocluaqua/hermex-android-port/releases/tag/android-v1.0.4)
+[![Latest release](https://img.shields.io/github/v/release/Hungbocluaqua/hermex-android-port?label=release&color=2F6B4F)](https://github.com/Hungbocluaqua/hermex-android-port/releases/latest)
 [![Android 8+](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)](android/README.md)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.3-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack-Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/compose)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](LICENSE)
 
-[![Download APK](https://img.shields.io/badge/Download-signed%20APK-2F6B4F?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Hungbocluaqua/hermex-android-port/releases/download/android-v1.0.4/app-release.apk)
+[![Download APK](https://img.shields.io/badge/Download-signed%20APK-2F6B4F?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Hungbocluaqua/hermex-android-port/releases/latest/download/app-release.apk)
 
 [Latest release](https://github.com/Hungbocluaqua/hermex-android-port/releases/latest) · [Android source](android/) · [Report a bug](https://github.com/Hungbocluaqua/hermex-android-port/issues) · [Contributing](CONTRIBUTING.md)
 
@@ -29,22 +29,16 @@ Hermex is a native Kotlin and Jetpack Compose port of the original SwiftUI app. 
 
 The original iPhone app is still maintained in this repository, but this README focuses on the Android port and its releases.
 
-## Install Hermex 1.0.4
+## Install Hermex
 
 Hermex is currently distributed as a signed APK through GitHub Releases and requires Android 8.0 (API 26) or newer.
 
-1. Download [`app-release.apk`](https://github.com/Hungbocluaqua/hermex-android-port/releases/download/android-v1.0.4/app-release.apk) on your Android device.
+1. Download the latest signed [`app-release.apk`](https://github.com/Hungbocluaqua/hermex-android-port/releases/latest/download/app-release.apk) on your Android device.
 2. If prompted, allow your browser or file manager to install apps from that source.
 3. Open the APK and install Hermex. Future signed releases can be installed over the existing app.
 4. Enter your `hermes-webui` server URL and password during onboarding.
 
-The matching AAB is included on the [1.0.4 release page](https://github.com/Hungbocluaqua/hermex-android-port/releases/tag/android-v1.0.4) for store distribution; Android users should install the APK instead.
-
-APK SHA-256:
-
-```text
-367d0ccca4d8eb7f0f0791d5ffc14076565a53b81d0a2629682bd15a098492c9
-```
+The matching AAB and version-specific notes are available on the [latest release page](https://github.com/Hungbocluaqua/hermex-android-port/releases/latest) for store distribution and release verification; Android users should install the APK instead.
 
 ## Android features
 

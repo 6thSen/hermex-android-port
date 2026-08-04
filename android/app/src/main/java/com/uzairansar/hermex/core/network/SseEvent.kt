@@ -29,8 +29,19 @@ sealed interface SseEvent {
     data class ApprovalPending(val response: ApprovalPendingResponse) : SseEvent
     data class ClarificationPending(val response: ClarificationPendingResponse) : SseEvent
     data object StreamEnd : SseEvent
-    data object Cancelled : SseEvent
-    data class Error(val message: String) : SseEvent
+    data class Cancelled(
+        val session: SessionDetail? = null,
+        val sessionId: String? = null,
+        val replacementSessionId: String? = null,
+    ) : SseEvent
+    data class Error(
+        val message: String,
+        val session: SessionDetail? = null,
+        val sessionId: String? = null,
+        val replacementSessionId: String? = null,
+        val hint: String? = null,
+        val details: String? = null,
+    ) : SseEvent
     data class TransportError(val message: String) : SseEvent
     data object Ignored : SseEvent
 }
@@ -75,9 +86,15 @@ private data class DonePayload(
 )
 
 @Serializable
-private data class ErrorPayload(
+private data class TerminalPayload(
     val error: String? = null,
     val message: String? = null,
+    val session: SessionDetail? = null,
+    @SerialName("session_id") val sessionId: String? = null,
+    @SerialName("new_session_id") val newSessionId: String? = null,
+    @SerialName("continuation_session_id") val continuationSessionId: String? = null,
+    val hint: String? = null,
+    val details: String? = null,
 )
 
 object SseEventDecoder {
@@ -103,9 +120,22 @@ object SseEventDecoder {
                 }
                 "pending_steer_leftover" -> SseEvent.PendingSteerLeftover(HermesJson.decodeFromString<TextPayload>(data).text.orEmpty())
                 "stream_end" -> SseEvent.StreamEnd
-                "cancel" -> SseEvent.Cancelled
-                "error", "apperror" -> HermesJson.decodeFromString<ErrorPayload>(data).let {
-                    SseEvent.Error(it.error ?: it.message ?: "The stream returned an error.")
+                "cancel" -> HermesJson.decodeFromString<TerminalPayload>(data).let {
+                    SseEvent.Cancelled(
+                        session = it.session,
+                        sessionId = it.sessionId ?: it.session?.sessionId,
+                        replacementSessionId = it.continuationSessionId ?: it.newSessionId,
+                    )
+                }
+                "error", "apperror" -> HermesJson.decodeFromString<TerminalPayload>(data).let {
+                    SseEvent.Error(
+                        message = it.error ?: it.message ?: "The stream returned an error.",
+                        session = it.session,
+                        sessionId = it.sessionId ?: it.session?.sessionId,
+                        replacementSessionId = it.continuationSessionId ?: it.newSessionId,
+                        hint = it.hint,
+                        details = it.details,
+                    )
                 }
                 "approval" -> SseEvent.ApprovalPending(HermesJson.decodeFromString(data))
                 "clarify" -> SseEvent.ClarificationPending(HermesJson.decodeFromString(data))

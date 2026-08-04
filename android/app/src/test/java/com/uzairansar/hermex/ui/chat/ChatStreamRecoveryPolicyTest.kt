@@ -26,6 +26,13 @@ class ChatStreamRecoveryPolicyTest {
     }
 
     @Test
+    fun serviceStopsOnlyWhenJobsAndDurableRecordsAreBothEmpty() {
+        assertTrue(streamRecoveryShouldStop(activeJobCount = 0, durableRecordCount = 0))
+        assertFalse(streamRecoveryShouldStop(activeJobCount = 1, durableRecordCount = 0))
+        assertFalse(streamRecoveryShouldStop(activeJobCount = 0, durableRecordCount = 1))
+    }
+
+    @Test
     fun recoversWhenActiveStreamFlowClosesWithoutCause() {
         assertTrue(
             ChatStreamRecoveryPolicy.shouldRecoverAfterFlowCompletion(

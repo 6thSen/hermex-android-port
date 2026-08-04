@@ -1334,6 +1334,7 @@ data class ProfileSwitchResponse(
     val profiles: List<ProfileSummary>? = null,
     val active: String? = null,
     @SerialName("default_model") val defaultModel: String? = null,
+    @SerialName("default_model_provider") val defaultModelProvider: String? = null,
     @SerialName("default_workspace") val defaultWorkspace: String? = null,
     val error: String? = null,
 )
@@ -1362,6 +1363,8 @@ data class SettingsResponse(
     @SerialName("bot_name") val botName: String? = null,
     val theme: String? = null,
     @SerialName("show_cli_sessions") val showCliSessions: Boolean? = null,
+    @SerialName("default_model") val defaultModel: String? = null,
+    @SerialName("default_model_provider") val defaultModelProvider: String? = null,
 )
 
 @Serializable
@@ -1403,6 +1406,7 @@ data class UpdatesApplyResponse(
 data class DefaultModelResponse(
     val ok: Boolean? = null,
     val model: String? = null,
+    val provider: String? = null,
     val error: String? = null,
 )
 
@@ -1434,6 +1438,7 @@ data class CronJob(
     val deliver: String? = null,
     val skills: List<String>? = null,
     val model: String? = null,
+    val provider: String? = null,
     val profile: String? = null,
     @SerialName("toast_notifications") val toastNotifications: Boolean? = null,
 )

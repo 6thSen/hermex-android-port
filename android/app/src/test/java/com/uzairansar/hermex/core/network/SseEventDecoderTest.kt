@@ -66,6 +66,51 @@ class SseEventDecoderTest {
     }
 
     @Test
+    fun preservesAuthoritativeSessionAndContinuationFromAppError() {
+        val event = SseEventDecoder.decode(
+            "apperror",
+            """
+            {
+              "message":"Provider failed",
+              "hint":"Choose another model",
+              "details":"HTTP 401",
+              "session_id":"session-old",
+              "continuation_session_id":"session-new",
+              "session":{
+                "session_id":"session-new",
+                "messages":[{"role":"assistant","content":"Saved failure","message_id":"error-1"}]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertTrue(event is SseEvent.Error)
+        event as SseEvent.Error
+        assertEquals("Provider failed", event.message)
+        assertEquals("Choose another model", event.hint)
+        assertEquals("HTTP 401", event.details)
+        assertEquals("session-old", event.sessionId)
+        assertEquals("session-new", event.replacementSessionId)
+        assertEquals("Saved failure", event.session?.messages?.single()?.content)
+    }
+
+    @Test
+    fun preservesSessionFromCancelFrame() {
+        val event = SseEventDecoder.decode(
+            "cancel",
+            """{"session":{"session_id":"session-1","messages":[]}}""",
+        )
+
+        assertEquals(
+            SseEvent.Cancelled(
+                session = com.uzairansar.hermex.core.model.SessionDetail(sessionId = "session-1", messages = emptyList()),
+                sessionId = "session-1",
+            ),
+            event,
+        )
+    }
+
+    @Test
     fun decodesApprovalAndClarificationFrames() {
         val approval = SseEventDecoder.decode(
             "approval",

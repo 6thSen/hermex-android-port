@@ -15,6 +15,7 @@ import com.uzairansar.hermex.core.model.SessionExportFile
 import com.uzairansar.hermex.core.model.SessionExportFormat
 import com.uzairansar.hermex.core.model.SessionMutationResponse
 import com.uzairansar.hermex.core.model.SessionSummary
+import com.uzairansar.hermex.core.model.isConfirmedMutation
 import com.uzairansar.hermex.data.preferences.LocalSettingsRepository
 import com.uzairansar.hermex.data.preferences.SessionRowDisplaySettings
 import com.uzairansar.hermex.data.repository.PanelsRepository
@@ -823,10 +824,10 @@ class SessionListViewModel(
 private const val REMOTE_SEARCH_DEBOUNCE_MILLIS = 350L
 
 private fun SessionMutationResponse.mutationError(fallback: String): String? =
-    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeIf { ok == false }
+    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeUnless { isConfirmedMutation() }
 
 private fun ProjectMutationResponse.mutationError(fallback: String): String? =
-    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeIf { ok == false }
+    error?.trim()?.takeIf { it.isNotBlank() } ?: fallback.takeUnless { isConfirmedMutation() }
 
 private fun SessionBranchResponse.mutationError(): String? = error?.trim()?.takeIf { it.isNotBlank() }
 

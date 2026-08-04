@@ -71,6 +71,7 @@ import io.noties.markwon.syntax.Prism4jThemeDarkula
 import io.noties.markwon.syntax.Prism4jThemeDefault
 import io.noties.markwon.syntax.SyntaxHighlightPlugin
 import io.noties.prism4j.Prism4j
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -95,11 +96,11 @@ fun MarkdownText(
         }
         return
     }
-    if (markdown.length > MAX_STRUCTURED_MARKDOWN_CHARACTERS) {
-        val chunks = remember(markdown) { markdownPlainTextChunks(markdown, PLAIN_TEXT_CHUNK_CHARACTERS) }
+    val plainTextChunks = remember(markdown) { markdownPlainTextChunksForLargeContent(markdown) }
+    if (plainTextChunks != null) {
         SelectionContainer {
             Column(modifier = modifier) {
-                chunks.forEach { chunk ->
+                plainTextChunks.forEach { chunk ->
                     Text(
                         text = chunk,
                         style = MaterialTheme.typography.bodyMedium,
@@ -112,7 +113,13 @@ fun MarkdownText(
     }
     var parsedSegments by remember { mutableStateOf<List<MarkdownSegment>?>(null) }
     LaunchedEffect(markdown) {
-        parsedSegments = withContext(Dispatchers.Default) { markdown.parseMarkdownSegments() }
+        parsedSegments = try {
+            withContext(Dispatchers.Default) { markdown.parseMarkdownSegments() }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            listOf(MarkdownSegment.Markdown(markdown))
+        }
     }
     val segments = parsedSegments ?: listOf(MarkdownSegment.Markdown(markdown))
     if (segments.size == 1 && segments.single() is MarkdownSegment.Markdown) {
@@ -175,10 +182,17 @@ private const val STREAMING_SUFFIX_START_ALPHA = 72
 private const val MAX_STRUCTURED_MARKDOWN_CHARACTERS = 80_000
 private const val PLAIN_TEXT_CHUNK_CHARACTERS = 16_000
 
+internal fun markdownPlainTextChunksForLargeContent(markdown: String): List<String>? =
+    if (markdown.length > MAX_STRUCTURED_MARKDOWN_CHARACTERS) {
+        markdownPlainTextChunks(markdown, PLAIN_TEXT_CHUNK_CHARACTERS)
+    } else {
+        null
+    }
+
 internal fun markdownPlainTextChunks(markdown: String, maximumCharacters: Int): List<String> {
     if (markdown.isEmpty()) return listOf("")
     val chunkSize = maximumCharacters.coerceAtLeast(1)
-    val chunks = ArrayList<String>((markdown.length / chunkSize) + 1)
+    val ranges = ArrayList<IntRange>((markdown.length / chunkSize) + 1)
     var start = 0
     while (start < markdown.length) {
         var end = (start + chunkSize).coerceAtMost(markdown.length)
@@ -186,10 +200,16 @@ internal fun markdownPlainTextChunks(markdown: String, maximumCharacters: Int): 
             end -= 1
         }
         if (end == start) end = (start + 2).coerceAtMost(markdown.length)
-        chunks += markdown.substring(start, end)
+        ranges += start until end
         start = end
     }
-    return chunks
+    return object : AbstractList<String>() {
+        override val size: Int = ranges.size
+        override fun get(index: Int): String {
+            val range = ranges[index]
+            return markdown.substring(range.first, range.last + 1)
+        }
+    }
 }
 
 @Composable
@@ -212,19 +232,46 @@ private fun MarkdownAndroidView(
     val isDarkTheme = colorScheme.background.luminance() < 0.5f
     val latexTextSizePx = with(LocalDensity.current) { 15.sp.toPx() }
     val markwon = remember(context, textColor, linkColor, codeBackground, dividerColor, isDarkTheme, latexTextSizePx) {
-        MarkdownRendererCache.get(
-            context = context.applicationContext,
-            textColor = textColor,
-            codeBackground = codeBackground,
-            dividerColor = dividerColor,
-            isDarkTheme = isDarkTheme,
-            latexTextSizePx = latexTextSizePx,
-        )
+        try {
+            MarkdownRendererCache.get(
+                context = context.applicationContext,
+                textColor = textColor,
+                codeBackground = codeBackground,
+                dividerColor = dividerColor,
+                isDarkTheme = isDarkTheme,
+                latexTextSizePx = latexTextSizePx,
+            )
+        } catch (_: Exception) {
+            null
+        }
     }
-    var parsedMarkdown by remember(markwon) { mutableStateOf<android.text.Spanned?>(null) }
+    var renderState by remember(markwon, markdown) { mutableStateOf<MarkdownRenderState>(MarkdownRenderState.Pending) }
     LaunchedEffect(markwon, markdown) {
-        parsedMarkdown = withContext(Dispatchers.Default) { markwon.toMarkdown(markdown) }
+        if (markwon == null) {
+            renderState = MarkdownRenderState.Failed
+            return@LaunchedEffect
+        }
+        renderState = try {
+            MarkdownRenderState.Rendered(withContext(Dispatchers.Default) { markwon.toMarkdown(markdown) })
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            MarkdownRenderState.Failed
+        }
     }
+    val parsedMarkdown = (renderState as? MarkdownRenderState.Rendered)?.markdown
+    if (parsedMarkdown == null) {
+        SelectionContainer {
+            Text(
+                text = markdown,
+                modifier = modifier,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        return
+    }
+    val renderer = markwon ?: return
     AndroidView(
         modifier = modifier.semantics {
             text = AnnotatedString(markdown)
@@ -243,25 +290,39 @@ private fun MarkdownAndroidView(
             textView.setLinkTextColor(linkColor)
             textView.setHorizontallyScrolling(false)
             textView.isHorizontalScrollBarEnabled = false
-            parsedMarkdown?.let { parsed ->
+            parsedMarkdown.let { parsed ->
                 val viewState = textView.tag as? StreamingMarkdownViewState
                     ?: StreamingMarkdownViewState().also { textView.tag = it }
                 val nextText = parsed.toString()
-                if (viewState.renderer === markwon && viewState.renderedText == nextText) return@let
+                if (viewState.renderer === renderer && viewState.renderedText == nextText) return@let
                 viewState.animator?.cancel()
                 val suffixStart = streamingSuffixStart(viewState.previousText, nextText)
                 val spannable = SpannableStringBuilder(parsed)
-                markwon.setParsedMarkdown(textView, spannable)
+                try {
+                    renderer.setParsedMarkdown(textView, spannable)
+                } catch (_: Exception) {
+                    textView.text = markdown
+                    viewState.previousText = markdown
+                    viewState.renderedText = markdown
+                    viewState.renderer = null
+                    return@let
+                }
                 val displayedText = textView.text as? Spannable ?: spannable
                 if (isStreaming && streamedTextAnimationEnabled && suffixStart < displayedText.length) {
                     animateStreamingSuffix(textView, displayedText, suffixStart, textColor, viewState)
                 }
                 viewState.previousText = nextText
                 viewState.renderedText = nextText
-                viewState.renderer = markwon
+                viewState.renderer = renderer
             }
         },
     )
+}
+
+private sealed interface MarkdownRenderState {
+    data object Pending : MarkdownRenderState
+    data object Failed : MarkdownRenderState
+    data class Rendered(val markdown: Spanned) : MarkdownRenderState
 }
 
 internal fun streamingSuffixStart(previous: String, current: String): Int {

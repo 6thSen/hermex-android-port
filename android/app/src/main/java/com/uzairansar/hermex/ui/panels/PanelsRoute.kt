@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -45,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -86,6 +89,7 @@ import com.uzairansar.hermex.core.model.SkillContentResponse
 import com.uzairansar.hermex.core.model.SkillSummary
 import com.uzairansar.hermex.data.repository.PanelsRepository
 import com.uzairansar.hermex.ui.chat.MarkdownText
+import com.uzairansar.hermex.ui.chat.markdownPlainTextChunksForLargeContent
 import com.uzairansar.hermex.ui.theme.HermexCardShape
 import com.uzairansar.hermex.ui.theme.HermexGlassShape
 import com.uzairansar.hermex.ui.theme.HermexIconButton
@@ -1046,8 +1050,11 @@ private fun TaskDetailSheet(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = Color.Transparent,
@@ -1061,8 +1068,8 @@ private fun TaskDetailSheet(
                     castsShadow = false,
                     surfaceLevel = HermexSurfaceLevel.Floating,
                 )
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-                .verticalScroll(rememberScrollState()),
+                .testTag("task_detail_sheet")
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
@@ -1124,49 +1131,59 @@ private fun TaskDetailSheet(
                 }
             }
 
-            PanelSubsection(localizedString("Details")) {
-                CronJobMetadataRow("Schedule", job.scheduleText)
-                CronJobMetadataRow("Next", job.nextRunAt.panelDateText() ?: "Not available")
-                CronJobMetadataRow("Last", job.lastRunAt.panelDateText() ?: "Never")
-                runningElapsed?.let { CronJobMetadataRow("Elapsed", elapsedText(it)) }
-                CronJobMetadataRow("Deliver", job.deliver?.takeIf { it.isNotBlank() } ?: "local")
-                job.model?.takeIf { it.isNotBlank() }?.let { CronJobMetadataRow("Model", it) }
-                job.profile?.takeIf { it.isNotBlank() }?.let { CronJobMetadataRow("Profile", it) }
-                job.toastNotifications?.let { CronJobMetadataRow("Toasts", if (it) "On" else "Off") }
-                job.skills?.takeIf { it.isNotEmpty() }?.let { CronJobMetadataRow("Skills", it.joinToString(", ")) }
-                (job.lastError ?: job.lastDeliveryError)?.takeIf { it.isNotBlank() }?.let { error ->
-                    CronJobMetadataRow("Error", error, isError = true)
-                }
-            }
-
-            PanelSubsection(localizedString("Recent Output")) {
-                when {
-                    isLoadingOutput -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text(localizedString("Loading output..."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("task_detail_scroll"),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                PanelSubsection(localizedString("Details")) {
+                    CronJobMetadataRow("Schedule", job.scheduleText)
+                    CronJobMetadataRow("Next", job.nextRunAt.panelDateText() ?: "Not available")
+                    CronJobMetadataRow("Last", job.lastRunAt.panelDateText() ?: "Never")
+                    runningElapsed?.let { CronJobMetadataRow("Elapsed", elapsedText(it)) }
+                    CronJobMetadataRow("Deliver", job.deliver?.takeIf { it.isNotBlank() } ?: "local")
+                    job.model?.takeIf { it.isNotBlank() }?.let { CronJobMetadataRow("Model", it) }
+                    job.provider?.takeIf { it.isNotBlank() }?.let { CronJobMetadataRow("Provider", it) }
+                    job.profile?.takeIf { it.isNotBlank() }?.let { CronJobMetadataRow("Profile", it) }
+                    job.toastNotifications?.let { CronJobMetadataRow("Toasts", if (it) "On" else "Off") }
+                    job.skills?.takeIf { it.isNotEmpty() }?.let { CronJobMetadataRow("Skills", it.joinToString(", ")) }
+                    (job.lastError ?: job.lastDeliveryError)?.takeIf { it.isNotBlank() }?.let { error ->
+                        CronJobMetadataRow("Error", error, isError = true)
                     }
-                    output?.error?.isNotBlank() == true && output.outputs.isNullOrEmpty() -> Text(
-                        output.error,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    output?.outputs.isNullOrEmpty() -> Text(
-                        localizedString("This task has not produced any output yet."),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    else -> output.outputs.orEmpty().forEach { item ->
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(item.filename ?: "Untitled", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
-                            Text(
-                                item.content?.takeIf { it.isNotBlank() } ?: "Empty output",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f), HermexCardShape)
-                                    .padding(10.dp),
-                                fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                }
+
+                PanelSubsection(localizedString("Recent Output")) {
+                    when {
+                        isLoadingOutput -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(localizedString("Loading output..."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        }
+                        output?.error?.isNotBlank() == true && output.outputs.isNullOrEmpty() -> Text(
+                            output.error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        output?.outputs.isNullOrEmpty() -> Text(
+                            localizedString("This task has not produced any output yet."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                        else -> output.outputs.orEmpty().forEach { item ->
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(item.filename ?: "Untitled", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    item.content?.takeIf { it.isNotBlank() } ?: "Empty output",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f), HermexCardShape)
+                                        .padding(10.dp),
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         }
                     }
                 }
@@ -1548,6 +1565,13 @@ private fun TaskEditorDialog(
                     enabled = !isMutating,
                 )
                 OutlinedTextField(
+                    value = draft.provider,
+                    onValueChange = { onDraftChange(draft.copy(provider = it)) },
+                    label = { Text(localizedString("Provider")) },
+                    singleLine = true,
+                    enabled = !isMutating,
+                )
+                OutlinedTextField(
                     value = draft.profile,
                     onValueChange = { onDraftChange(draft.copy(profile = it)) },
                     label = { Text(localizedString("Profile")) },
@@ -1787,6 +1811,8 @@ private fun SkillDetailSheet(
     val density = LocalDensity.current
     val windowHeight = LocalWindowInfo.current.containerSize.height
     val sheetHeight = with(density) { windowHeight.toDp() } * 0.9f
+    val content = skill.content?.trim().orEmpty()
+    val plainTextChunks = remember(content) { markdownPlainTextChunksForLargeContent(content) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1824,27 +1850,49 @@ private fun SkillDetailSheet(
                 HermexPillButton(localizedString("Done"), onDismiss, filled = true)
             }
             Spacer(Modifier.height(14.dp))
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
                     .testTag("skill_detail_scroll"),
+                contentPadding = PaddingValues(bottom = 18.dp),
             ) {
-                val content = skill.content?.trim().orEmpty()
                 when {
-                    content.isNotEmpty() -> MarkdownText(content)
-                    !skill.error.isNullOrBlank() -> Text(skill.error, color = MaterialTheme.colorScheme.error)
-                    else -> Text(localizedString("This skill has no content."), color = PanelSecondaryText)
+                    content.isNotEmpty() && plainTextChunks == null -> item("skill-markdown") {
+                        MarkdownText(content)
+                    }
+                    content.isNotEmpty() -> items(
+                        count = plainTextChunks.orEmpty().size,
+                        key = { index -> "skill-plain-$index" },
+                    ) { index ->
+                        SelectionContainer {
+                            Text(
+                                text = plainTextChunks.orEmpty()[index],
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                    !skill.error.isNullOrBlank() -> item("skill-error") {
+                        Text(skill.error, color = MaterialTheme.colorScheme.error)
+                    }
+                    else -> item("skill-empty") {
+                        Text(localizedString("This skill has no content."), color = PanelSecondaryText)
+                    }
                 }
                 if (skill.linkedFileNames.isNotEmpty()) {
-                    Spacer(Modifier.height(18.dp))
-                    PanelSectionLabel(localizedString("Linked Files"))
-                    skill.linkedFileNames.forEach { fileName ->
+                    item("skill-linked-header") {
+                        Spacer(Modifier.height(18.dp))
+                        PanelSectionLabel(localizedString("Linked Files"))
+                    }
+                    items(
+                        count = skill.linkedFileNames.size,
+                        key = { index -> "skill-linked-${skill.linkedFileNames[index]}-$index" },
+                    ) { index ->
+                        val fileName = skill.linkedFileNames[index]
                         LinkedFileRow(fileName, !isLoadingFile) { onOpenLinkedFile(fileName) }
                     }
                 }
-                Spacer(Modifier.height(18.dp))
             }
         }
     }
@@ -2084,8 +2132,11 @@ private fun MemoryEditSheet(
     onDismiss: () -> Unit,
     onSave: () -> Unit,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = Color.Transparent,
@@ -2093,11 +2144,13 @@ private fun MemoryEditSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.9f)
                 .hermexGlass(
                     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                     castsShadow = false,
                     surfaceLevel = HermexSurfaceLevel.Floating,
                 )
+                .testTag("memory_edit_sheet")
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -2122,7 +2175,10 @@ private fun MemoryEditSheet(
                 onValueChange = onDraftChange,
                 minLines = 12,
                 maxLines = 18,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .testTag("memory_edit_body"),
                 enabled = !isSaving,
             )
             if (isSaving) {

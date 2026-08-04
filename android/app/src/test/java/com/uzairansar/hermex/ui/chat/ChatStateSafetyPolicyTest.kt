@@ -54,6 +54,15 @@ class ChatStateSafetyPolicyTest {
     }
 
     @Test
+    fun draftPersistenceKeepsNormalDraftsAndRejectsOversizedPayloads() {
+        assertEquals("hello", ChatDraftPersistencePolicy.persistedDraft("hello"))
+        assertEquals(
+            "",
+            ChatDraftPersistencePolicy.persistedDraft("x".repeat(ChatDraftPersistencePolicy.MaximumPersistedCharacters + 1)),
+        )
+    }
+
+    @Test
     fun pendingChatStateRoundTripsAcrossProcessRecreation() {
         val state = PersistedChatPendingState(
             draft = "unsent draft",

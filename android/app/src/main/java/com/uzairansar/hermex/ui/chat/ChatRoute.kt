@@ -71,6 +71,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -2352,8 +2353,11 @@ private fun ContextWindowDetailsSheet(
     snapshot: ContextWindowSnapshot,
     onDismiss: () -> Unit,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         containerColor = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -3141,8 +3145,11 @@ private fun PickerSheet(
     content: @Composable () -> Unit,
 ) {
     val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -3157,7 +3164,8 @@ private fun PickerSheet(
                 .hermexGlass(
                     shape = sheetShape,
                     surfaceLevel = HermexSurfaceLevel.Floating,
-                ),
+                )
+                .testTag("picker_sheet"),
         ) {
             Box(
                 modifier = Modifier
@@ -3626,8 +3634,11 @@ private fun EditMessageSheet(
     onDismiss: () -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         containerColor = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -4689,8 +4700,11 @@ private fun GitTurnDiffSheet(
         isLoading = false
     }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         dragHandle = null,
         containerColor = MaterialTheme.colorScheme.background,
     ) {
@@ -5080,7 +5094,12 @@ private fun MessageActionSheet(
     onFork: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
