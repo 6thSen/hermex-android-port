@@ -160,6 +160,7 @@ import com.uzairansar.hermex.core.model.UploadResponse
 import com.uzairansar.hermex.core.model.WorkspaceRoot
 import com.uzairansar.hermex.core.model.shouldRenderTranscriptItem
 import com.uzairansar.hermex.data.preferences.ChatDisplaySettings
+import com.uzairansar.hermex.data.preferences.DictationProviderPreference
 import com.uzairansar.hermex.data.preferences.LocalSettingsRepository
 import com.uzairansar.hermex.data.preferences.ModelFavoriteKey
 import com.uzairansar.hermex.data.preferences.StreamingSendBehavior
@@ -191,6 +192,7 @@ import com.uzairansar.hermex.ui.theme.hermexPrimaryActionContentColor
 import com.uzairansar.hermex.ui.theme.primaryActionTintApplies
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
@@ -200,6 +202,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import java.io.File
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -292,6 +295,9 @@ fun ChatRoute(
     val streamingSendBehavior by remember(localSettingsRepository) {
         localSettingsRepository?.streamingSendBehavior ?: flowOf(StreamingSendBehavior.Steer)
     }.collectAsStateWithLifecycle(initialValue = StreamingSendBehavior.Steer)
+    val dictationProviderPreference by remember(localSettingsRepository) {
+        localSettingsRepository?.dictationProviderPreference ?: flowOf(DictationProviderPreference.ServerFirst)
+    }.collectAsStateWithLifecycle(initialValue = DictationProviderPreference.ServerFirst)
     val tintPrimaryActionsWithThemeColor by remember(localSettingsRepository) {
         localSettingsRepository?.tintPrimaryActionsWithThemeColor ?: flowOf(false)
     }.collectAsStateWithLifecycle(initialValue = false)
@@ -323,6 +329,7 @@ fun ChatRoute(
     val latestResponseCompletionNotificationsEnabled by rememberUpdatedState(responseCompletionNotificationsEnabled)
     val latestShowResponseExcerpts by rememberUpdatedState(chatDisplaySettings.showsStatusNotificationResponseExcerpts)
     val recorder = remember(context) { VoiceNoteRecorder(context) }
+    val dictationRecorder = remember(context) { VoiceNoteRecorder(context) }
     val dictationController = remember(context) { VoiceDictationController(context) }
     val streamNotifier = remember(context) { StreamStatusNotifier(context.applicationContext) }
     val ttsState = remember { mutableStateOf<TextToSpeech?>(null) }
@@ -330,6 +337,7 @@ fun ChatRoute(
     val serverSpeechPlayer = remember { mutableStateOf<MediaPlayer?>(null) }
     val serverSpeechFile = remember { mutableStateOf<File?>(null) }
     var speechJob by remember { mutableStateOf<Job?>(null) }
+    var dictationJob by remember { mutableStateOf<Job?>(null) }
     val speechScope = rememberCoroutineScope()
     val modelPickerScope = rememberCoroutineScope()
     val releaseServerSpeech: () -> Unit = {
@@ -357,7 +365,10 @@ fun ChatRoute(
         onDispose {
             speechJob?.cancel()
             speechJob = null
+            dictationJob?.cancel()
+            dictationJob = null
             if (recorder.isRecording) viewModel.cancelVoiceNote(recorder)
+            dictationRecorder.stop(delete = true)
             dictationController.cancel()
             releaseServerSpeech()
             tts.stop()
@@ -383,25 +394,86 @@ fun ChatRoute(
     }
     var pendingVoicePermissionAction by rememberSaveable { mutableStateOf<VoicePermissionAction?>(null) }
     var isVoiceDictating by remember { mutableStateOf(false) }
+    var isVoiceDictationTranscribing by remember { mutableStateOf(false) }
     var voiceDictationError by rememberSaveable { mutableStateOf<String?>(null) }
     var voiceDictationBaseDraft by rememberSaveable { mutableStateOf("") }
-    val beginVoiceDictation: () -> Unit = {
-        if (isVoiceDictating) {
-            dictationController.stop()
+    lateinit var finishServerDictation: () -> Unit
+    finishServerDictation = {
+        if (!dictationRecorder.isRecording || isVoiceDictationTranscribing) {
+            Unit
         } else {
-            voiceDictationBaseDraft = state.draft
-            voiceDictationError = null
-            dictationController.start(
-                onText = { transcript, _ ->
-                    viewModel.updateDraft(voiceDictationDraft(voiceDictationBaseDraft, transcript))
-                },
-                onListeningChanged = { isVoiceDictating = it },
-                onError = { voiceDictationError = it },
-            )
+            val file = dictationRecorder.stop()
+            if (file == null) {
+                isVoiceDictating = false
+                voiceDictationError = dictationRecorder.lastErrorMessage ?: "Voice dictation was empty."
+            } else {
+                isVoiceDictationTranscribing = true
+                isVoiceDictating = true
+                dictationJob = speechScope.launch {
+                    try {
+                        val response = repository.transcribe(file)
+                        val transcript = response.transcript?.trim().orEmpty()
+                        require(response.error.isNullOrBlank() && transcript.isNotEmpty()) {
+                            response.error ?: "The server did not return a transcript."
+                        }
+                        viewModel.updateDraft(voiceDictationDraft(voiceDictationBaseDraft, transcript))
+                        voiceDictationError = null
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        voiceDictationError = error.message ?: "Could not transcribe voice input."
+                    } finally {
+                        runCatching { file.delete() }
+                        isVoiceDictationTranscribing = false
+                        isVoiceDictating = false
+                        dictationJob = null
+                    }
+                }
+            }
+        }
+    }
+    val beginVoiceDictation: () -> Unit = {
+        when {
+            isVoiceDictationTranscribing -> Unit
+            isVoiceDictating && dictationRecorder.isRecording -> finishServerDictation()
+            isVoiceDictating -> dictationController.stop()
+            else -> {
+                voiceDictationBaseDraft = state.draft
+                voiceDictationError = null
+                when (
+                    DictationProviderPolicy.primaryProvider(
+                        preference = dictationProviderPreference,
+                        serverConfigured = true,
+                        onDeviceSupported = dictationController.isOnDeviceRecognitionAvailable,
+                    )
+                ) {
+                    DictationProvider.Server -> runCatching {
+                        dictationRecorder.start { speechScope.launch { finishServerDictation() } }
+                    }.onSuccess {
+                        isVoiceDictating = true
+                    }.onFailure { error ->
+                        voiceDictationError = error.message ?: "Could not start server dictation."
+                    }
+                    DictationProvider.OnDevice -> dictationController.start(
+                        onDeviceOnly = true,
+                        onText = { transcript, _ ->
+                            viewModel.updateDraft(voiceDictationDraft(voiceDictationBaseDraft, transcript))
+                        },
+                        onListeningChanged = { isVoiceDictating = it },
+                        onError = { voiceDictationError = it },
+                    )
+                    null -> voiceDictationError = "On-device dictation is not available on this device."
+                }
+            }
         }
     }
     val beginVoiceNote: () -> Unit = {
         if (isVoiceDictating) dictationController.cancel { isVoiceDictating = it }
+        if (dictationRecorder.isRecording) dictationRecorder.stop(delete = true)
+        dictationJob?.cancel()
+        dictationJob = null
+        isVoiceDictating = false
+        isVoiceDictationTranscribing = false
         voiceDictationError = null
         viewModel.startVoiceNote(recorder)
     }
@@ -787,6 +859,7 @@ fun ChatRoute(
                                     toolCardsStartExpanded = chatDisplaySettings.toolCardsStartExpanded,
                                     hidesAttachmentPaths = chatDisplaySettings.hidesAttachmentPaths,
                                     showsAssistantTurnTimestamps = chatDisplaySettings.showsAssistantTurnTimestamps,
+                                    showsResponseSpeed = chatDisplaySettings.showsResponseSpeed,
                                     wrapsCodeBlockLines = chatDisplaySettings.wrapsCodeBlockLines,
                                     streamedTextAnimationEnabled = chatDisplaySettings.streamedTextAnimationEnabled,
                                     loadTranscriptMediaImage = viewModel::transcriptMediaThumbnailData,
@@ -822,7 +895,7 @@ fun ChatRoute(
                                 ?.let { card ->
                                     CompressionReferenceMarkerCard(card)
                                 }
-                            if (turnChangesAnchorIndex == index) {
+                            if (chatDisplaySettings.showsChatGitControls && turnChangesAnchorIndex == index) {
                                 GitTurnChangesCard(
                                     summary = turnChangesSummary,
                                     onOpenAll = {
@@ -894,6 +967,7 @@ fun ChatRoute(
                     ComposerSurface(
                         state = state,
                         isVoiceDictating = isVoiceDictating,
+                        isVoiceDictationTranscribing = isVoiceDictationTranscribing,
                         voiceDictationError = voiceDictationError,
                         streamingSendBehavior = streamingSendBehavior,
                         primaryActionTintColor = primaryActionTintColor,
@@ -943,6 +1017,8 @@ fun ChatRoute(
             title = state.headerTitle,
             subtitle = state.headerSubtitle,
             hasRepository = gitState.hasRepository,
+            showsFilesButton = chatDisplaySettings.showsChatFilesButton,
+            showsGitControls = chatDisplaySettings.showsChatGitControls,
             onBack = onBack,
             onOpenWorkspace = onOpenWorkspace,
             onOpenGit = onOpenGit,
@@ -1420,6 +1496,8 @@ private fun ChatTopBar(
     title: String,
     subtitle: String?,
     hasRepository: Boolean,
+    showsFilesButton: Boolean,
+    showsGitControls: Boolean,
     onBack: () -> Unit,
     onOpenWorkspace: () -> Unit,
     onOpenGit: () -> Unit,
@@ -1455,7 +1533,13 @@ private fun ChatTopBar(
             modifier = Modifier
                 .align(Alignment.Center)
                 .fillMaxWidth()
-                .padding(horizontal = if (hasRepository) 152.dp else 108.dp),
+                .padding(
+                    horizontal = when {
+                        showsFilesButton && showsGitControls && hasRepository -> 152.dp
+                        showsFilesButton || (showsGitControls && hasRepository) -> 108.dp
+                        else -> 64.dp
+                    },
+                ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -1482,14 +1566,16 @@ private fun ChatTopBar(
                 .hermexGlass(shape = CircleShape, castsShadow = false)
                 .padding(1.dp),
         ) {
-            HermexIconButton(
-                label = localizedString("Files"),
-                symbol = "\u2302",
-                onClick = onOpenWorkspace,
-                tonalContainerColor = Color.Transparent,
-                modifier = Modifier.size(44.dp),
-            )
-            if (hasRepository) {
+            if (showsFilesButton) {
+                HermexIconButton(
+                    label = localizedString("Files"),
+                    symbol = "\u2302",
+                    onClick = onOpenWorkspace,
+                    tonalContainerColor = Color.Transparent,
+                    modifier = Modifier.size(44.dp),
+                )
+            }
+            if (showsGitControls && hasRepository) {
                 HermexIconButton(
                     label = localizedString("Git"),
                     symbol = "Git",
@@ -1914,6 +2000,7 @@ private fun SlashAutocompleteSurface(
 private fun ComposerSurface(
     state: ChatUiState,
     isVoiceDictating: Boolean,
+    isVoiceDictationTranscribing: Boolean,
     voiceDictationError: String?,
     streamingSendBehavior: StreamingSendBehavior,
     primaryActionTintColor: Color?,
@@ -1981,6 +2068,7 @@ private fun ComposerSurface(
                 onCancel = onCancelVoice,
             )
             state.isTranscribingVoiceNote -> ComposerVoiceTranscribingStatus()
+            isVoiceDictationTranscribing -> ComposerVoiceDictationStatus("Transcribing...", isError = false)
             isVoiceDictating -> ComposerVoiceDictationStatus("Listening...", isError = false)
             voiceDictationError != null -> ComposerVoiceDictationStatus(voiceDictationError, isError = true)
         }
@@ -3415,6 +3503,7 @@ private fun MessageRow(
     toolCardsStartExpanded: Boolean,
     hidesAttachmentPaths: Boolean,
     showsAssistantTurnTimestamps: Boolean,
+    showsResponseSpeed: Boolean,
     wrapsCodeBlockLines: Boolean,
     streamedTextAnimationEnabled: Boolean,
     loadTranscriptMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
@@ -3492,11 +3581,13 @@ private fun MessageRow(
             reasoningTexts = message.reasoningTexts,
             tools = message.toolCalls.orEmpty(),
             timestamp = message.timestamp,
+            tokensPerSecond = message.turnTokensPerSecond,
             isStreamingMessage = isStreamingMessage,
             showThinkingAndToolCards = showThinkingAndToolCards,
             thinkingCardsStartExpanded = thinkingCardsStartExpanded,
             toolCardsStartExpanded = toolCardsStartExpanded,
             showsAssistantTurnTimestamp = showsAssistantTurnTimestamps,
+            showsResponseSpeed = showsResponseSpeed,
             wrapsCodeBlockLines = wrapsCodeBlockLines,
             streamedTextAnimationEnabled = streamedTextAnimationEnabled,
             linkPreviewUrl = linkPreviewUrl,
@@ -3737,11 +3828,13 @@ private fun AssistantMessageRow(
     reasoningTexts: List<String>,
     tools: List<ToolCall>,
     timestamp: Double?,
+    tokensPerSecond: Double?,
     isStreamingMessage: Boolean,
     showThinkingAndToolCards: Boolean,
     thinkingCardsStartExpanded: Boolean,
     toolCardsStartExpanded: Boolean,
     showsAssistantTurnTimestamp: Boolean,
+    showsResponseSpeed: Boolean,
     wrapsCodeBlockLines: Boolean,
     streamedTextAnimationEnabled: Boolean,
     linkPreviewUrl: HttpUrl?,
@@ -3780,8 +3873,11 @@ private fun AssistantMessageRow(
             }
         }
         if (visibleText.isNotBlank()) {
-            if (showsAssistantTurnTimestamp) {
-                AssistantTurnHeader(timestamp = timestamp)
+            if (showsAssistantTurnTimestamp || (showsResponseSpeed && responseSpeedText(tokensPerSecond) != null)) {
+                AssistantTurnHeader(
+                    timestamp = timestamp.takeIf { showsAssistantTurnTimestamp },
+                    tokensPerSecond = tokensPerSecond.takeIf { showsResponseSpeed },
+                )
             }
             if (containsTranscriptMedia) {
                 TranscriptMediaContentView(
@@ -4235,12 +4331,16 @@ private fun TranscriptLinkPreviewCard(
 }
 
 @Composable
-private fun AssistantTurnHeader(timestamp: Double?) {
-    val timestampDescription = localizedString("Response Timestamps")
+private fun AssistantTurnHeader(timestamp: Double?, tokensPerSecond: Double?) {
+    val speed = responseSpeedText(tokensPerSecond)
+    val details = listOfNotNull(timestamp.shortTimeText(), speed)
+    val headerDescription = localizedString(
+        if (timestamp != null) "Response Timestamps" else "Response Speed",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { contentDescription = timestampDescription },
+            .semantics { contentDescription = headerDescription },
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -4250,15 +4350,24 @@ private fun AssistantTurnHeader(timestamp: Double?) {
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.SemiBold,
         )
-        timestamp.shortTimeText()?.let { time ->
+        details.forEach { detail ->
             Text(
-                time,
+                detail,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.Medium,
             )
         }
     }
+}
+
+internal fun responseSpeedText(tokensPerSecond: Double?, locale: Locale = Locale.getDefault()): String? {
+    val value = tokensPerSecond?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+    val formatter = NumberFormat.getNumberInstance(locale).apply {
+        minimumFractionDigits = 1
+        maximumFractionDigits = 1
+    }
+    return "${formatter.format(value)} t/s"
 }
 
 @Composable
@@ -5784,7 +5893,7 @@ private fun ChatUiState.slashAutocompleteContext(): SlashAutocompleteContext =
             profile.name?.trim()?.takeIf { it.isNotEmpty() }
                 ?: profile.displayName?.trim()?.takeIf { it.isNotEmpty() }
         },
-        reasoningEfforts = reasoningOptions,
+        reasoningEfforts = (listOf("show", "hide") + reasoningOptions).distinct(),
         workspacePaths = buildList {
             workspaceRoots.mapNotNullTo(this) { root -> root.path?.trim()?.takeIf { it.isNotEmpty() } }
             workspaceSuggestions.mapNotNullTo(this) { path -> path.trim().takeIf { it.isNotEmpty() } }

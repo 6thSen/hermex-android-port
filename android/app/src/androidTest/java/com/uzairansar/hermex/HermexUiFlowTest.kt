@@ -1859,11 +1859,12 @@ class HermexUiFlowTest {
                             if (request.method == "POST") {
                                 settingsUpdateBody.set(request.body?.utf8().orEmpty())
                                 settingsUpdateLatch.countDown()
-                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":false}""")
+                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":false,"show_claude_code_sessions":true}""")
                             } else {
-                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":true}""")
+                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":true,"show_claude_code_sessions":true}""")
                             }
                         }
+                        "/api/providers" -> json("""{"active_provider":"openai","providers":[{"id":"openai","display_name":"OpenAI","has_key":true,"key_source":"env_var","models":["gpt-5"]}]}""")
                         "/api/models" -> json(
                             """
                             {
@@ -1901,11 +1902,12 @@ class HermexUiFlowTest {
                         "/api/settings" -> {
                             if (request.method == "POST") {
                                 settingsUpdateBody.set(request.body?.utf8().orEmpty())
-                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":false}""")
+                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":false,"show_claude_code_sessions":true}""")
                             } else {
-                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":true}""")
+                                json("""{"webui_version":"1.2.3","bot_name":"Hermes","show_cli_sessions":true,"show_claude_code_sessions":true}""")
                             }
                         }
+                        "/api/providers" -> json("""{"active_provider":"openai","providers":[{"id":"openai","display_name":"OpenAI","has_key":true,"key_source":"env_var","models":["gpt-5"]}]}""")
                         "/api/models" -> json(
                             """
                             {
@@ -2031,6 +2033,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("INTERACTION").assertIsDisplayed()
         composeRule.onNodeWithText("Haptic Feedback").assertIsDisplayed()
         composeRule.onNodeWithText("Send While Responding").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Dictation Provider").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("settings_list").performScrollToNode(hasSemanticsText("CHAT"))
         composeRule.onNodeWithText("CHAT").assertIsDisplayed()
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
@@ -2039,21 +2042,34 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("Expand Tools by Default").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Streamed Text Animation").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Response Timestamps").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Response Speed").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Wrap Code Block Lines").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Hide Attachment Paths").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Right-to-Left Chat Layout").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Files Button").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Git Actions").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("settings_list").performScrollToNode(hasSemanticsText("MAIN PAGE"))
+        composeRule.onNodeWithText("MAIN PAGE").assertIsDisplayed()
+        composeRule.onNodeWithText("Tasks").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Active Profile").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("settings_list").performScrollToNode(hasSemanticsText("ACTIVE SERVER"))
         composeRule.onNodeWithText("ACTIVE SERVER").assertIsDisplayed()
         composeRule.onNodeWithText("Default Model").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("GPT-5").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Default Profile").performScrollTo().assertIsDisplayed()
         assertTrue(hasText("Default"))
+        composeRule.onNodeWithText("Providers").performScrollTo().performClick()
+        composeRule.onNodeWithText("OpenAI").assertIsDisplayed()
+        composeRule.onNodeWithText("Provider keys are managed on the server. This screen is read-only.").assertIsDisplayed()
+        composeRule.onNodeWithText("Done").performClick()
 
         composeRule.onNodeWithTag("settings_list").performScrollToNode(hasSemanticsText("SESSIONS"))
         composeRule.onNodeWithText("SESSIONS").assertIsDisplayed()
-        composeRule.onNodeWithText("CLI session visibility is synced with this server, so the WebUI follows it too.")
+        composeRule.onNodeWithText("Session visibility is synced with this server, so the WebUI follows it too.")
             .performScrollTo()
             .assertIsDisplayed()
+        composeRule.onNodeWithText("Claude Code Sessions").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Subagent Sessions").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("cli_sessions_switch")
             .performScrollTo()
             .assertIsOn()

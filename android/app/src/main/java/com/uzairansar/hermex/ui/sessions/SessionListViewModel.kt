@@ -17,6 +17,7 @@ import com.uzairansar.hermex.core.model.SessionMutationResponse
 import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.core.model.isConfirmedMutation
 import com.uzairansar.hermex.data.preferences.LocalSettingsRepository
+import com.uzairansar.hermex.data.preferences.MainPageDisplaySettings
 import com.uzairansar.hermex.data.preferences.SessionRowDisplaySettings
 import com.uzairansar.hermex.data.repository.PanelsRepository
 import com.uzairansar.hermex.data.repository.ResultState
@@ -77,7 +78,9 @@ data class SessionListUiState(
     val searchError: String? = null,
     val showArchived: Boolean = false,
     val showCliSessions: Boolean = true,
+    val showClaudeCodeSessions: Boolean = true,
     val sessionRowDisplaySettings: SessionRowDisplaySettings = SessionRowDisplaySettings(),
+    val mainPageDisplaySettings: MainPageDisplaySettings = MainPageDisplaySettings(),
     val tintPrimaryActionsWithThemeColor: Boolean = false,
     val archivedCount: Int? = null,
     val profileOptions: List<ProfileSummary> = emptyList(),
@@ -112,6 +115,8 @@ data class SessionListUiState(
             }
             val sourceFiltered = archiveFiltered.filter { showCliSessions || it.isCliSession != true }
                 .filter { sessionRowDisplaySettings.showCronSessions || !it.isCronSession }
+                .filter { showClaudeCodeSessions || !it.isClaudeCodeSession }
+                .filter { sessionRowDisplaySettings.showSubagentSessions || !it.isDelegatedSubagentSession }
             val projectFiltered = selectedProjectId?.let { projectId ->
                 sourceFiltered.filter { it.projectId == projectId }
             } ?: sourceFiltered
@@ -221,8 +226,18 @@ class SessionListViewModel(
             }
         }
         viewModelScope.launch {
+            localSettingsRepository.showClaudeCodeSessions(serverId).collectLatest { enabled ->
+                _state.update { it.copy(showClaudeCodeSessions = enabled) }
+            }
+        }
+        viewModelScope.launch {
             localSettingsRepository.sessionRowDisplaySettings.collectLatest { displaySettings ->
                 _state.update { it.copy(sessionRowDisplaySettings = displaySettings) }
+            }
+        }
+        viewModelScope.launch {
+            localSettingsRepository.mainPageDisplaySettings.collectLatest { displaySettings ->
+                _state.update { it.copy(mainPageDisplaySettings = displaySettings) }
             }
         }
         viewModelScope.launch {

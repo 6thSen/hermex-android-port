@@ -166,6 +166,8 @@ data class SessionSummary(
     @Serializable(with = LossyNullableIntSerializer::class)
     @SerialName("output_tokens") val outputTokens: Int? = null,
     @SerialName("estimated_cost") val estimatedCost: Double? = null,
+    @Serializable(with = LossyNullableDoubleSerializer::class)
+    @SerialName("tps") val tokensPerSecond: Double? = null,
     @SerialName("active_stream_id") val activeStreamId: String? = null,
     @SerialName("is_streaming") val isStreaming: Boolean? = null,
     @SerialName("is_cli_session") val isCliSession: Boolean? = null,
@@ -187,6 +189,11 @@ data class SessionSummary(
         get() = listOfNotNull(sourceTag, rawSource, sessionSource, sourceLabel)
             .map(String::trim)
             .any { it.equals("subagent", ignoreCase = true) }
+
+    val isClaudeCodeSession: Boolean
+        get() = listOfNotNull(sourceTag, rawSource)
+            .map(String::trim)
+            .any { it.equals("claude_code", ignoreCase = true) }
 
     val isSessionReadOnly: Boolean
         get() = isDelegatedSubagentSession || readOnly == true || isReadOnly == true
@@ -230,6 +237,8 @@ data class SessionDetail(
     @Serializable(with = LossyNullableIntSerializer::class)
     @SerialName("output_tokens") val outputTokens: Int? = null,
     @SerialName("estimated_cost") val estimatedCost: Double? = null,
+    @Serializable(with = LossyNullableDoubleSerializer::class)
+    @SerialName("tps") val tokensPerSecond: Double? = null,
     @SerialName("active_stream_id") val activeStreamId: String? = null,
     @SerialName("is_streaming") val isStreaming: Boolean? = null,
     @SerialName("is_cli_session") val isCliSession: Boolean? = null,
@@ -470,6 +479,8 @@ data class ContextWindowSnapshot(
     @Serializable(with = LossyNullableIntSerializer::class)
     @SerialName("output_tokens") val outputTokens: Int? = null,
     @SerialName("estimated_cost") val estimatedCost: Double? = null,
+    @Serializable(with = LossyNullableDoubleSerializer::class)
+    @SerialName("tps") val tokensPerSecond: Double? = null,
 ) {
     val tokensUsed: Int?
         get() = lastPromptTokens ?: inputTokens
@@ -490,6 +501,7 @@ fun SessionDetail.contextWindowSnapshot(): ContextWindowSnapshot? {
         inputTokens,
         outputTokens,
         estimatedCost,
+        tokensPerSecond,
     ).any { it != null }
     if (!hasUsage) return null
     return ContextWindowSnapshot(
@@ -499,6 +511,7 @@ fun SessionDetail.contextWindowSnapshot(): ContextWindowSnapshot? {
         inputTokens = inputTokens,
         outputTokens = outputTokens,
         estimatedCost = estimatedCost,
+        tokensPerSecond = tokensPerSecond,
     )
 }
 
@@ -517,6 +530,7 @@ data class ChatMessage(
     val attachments: List<MessageAttachment>? = null,
     val reasoning: List<ReasoningSegment>? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCall>? = null,
+    @SerialName("_turnTps") val turnTokensPerSecond: Double? = null,
 ) {
     val displayText: String
         get() = content ?: text ?: parts?.joinToString("\n") { it.toString() }.orEmpty()
@@ -548,6 +562,7 @@ object ChatMessageSerializer : KSerializer<ChatMessage> {
         element<List<MessageAttachment>?>("attachments")
         element<List<ReasoningSegment>?>("reasoning")
         element<List<ToolCall>?>("toolCalls")
+        element<Double?>("turnTokensPerSecond")
     }
 
     override fun deserialize(decoder: Decoder): ChatMessage {
@@ -579,6 +594,9 @@ object ChatMessageSerializer : KSerializer<ChatMessage> {
             attachments = mergeAttachmentsWithAttachedFilesMarker(decodedAttachments, contentText),
             reasoning = decodeReasoning(jsonDecoder, element["reasoning"]),
             toolCalls = decodeListOrNull(jsonDecoder, element["tool_calls"] ?: element["toolCalls"]),
+            turnTokensPerSecond = element["_turnTps"].doubleValueOrNull()
+                ?: element["turn_tps"].doubleValueOrNull()
+                ?: element["turnTps"].doubleValueOrNull(),
         )
     }
 
@@ -599,6 +617,7 @@ object ChatMessageSerializer : KSerializer<ChatMessage> {
                 value.attachments?.let { put("attachments", jsonEncoder.json.encodeToJsonElement(it)) }
                 value.reasoning?.let { put("reasoning", jsonEncoder.json.encodeToJsonElement(it)) }
                 value.toolCalls?.let { put("tool_calls", jsonEncoder.json.encodeToJsonElement(it)) }
+                value.turnTokensPerSecond?.let { put("_turnTps", it) }
             },
         )
     }
@@ -1105,6 +1124,58 @@ object LossyNullableIntSerializer : KSerializer<Int?> {
     }
 }
 
+object LossyNullableBooleanSerializer : KSerializer<Boolean?> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("LossyNullableBoolean") {
+        element<Boolean?>("value")
+    }
+
+    override fun deserialize(decoder: Decoder): Boolean? {
+        val jsonDecoder = decoder as? JsonDecoder ?: return runCatching { decoder.decodeBoolean() }.getOrNull()
+        return when (val element = jsonDecoder.decodeJsonElement()) {
+            JsonNull -> null
+            is JsonPrimitive -> element.booleanOrNull ?: when (element.contentOrNull?.trim()?.lowercase()) {
+                "true", "1", "yes", "on" -> true
+                "false", "0", "no", "off" -> false
+                else -> null
+            }
+            else -> null
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: Boolean?) {
+        val jsonEncoder = encoder as? JsonEncoder
+        if (jsonEncoder != null) {
+            jsonEncoder.encodeJsonElement(value?.let(::JsonPrimitive) ?: JsonNull)
+        } else if (value != null) {
+            encoder.encodeBoolean(value)
+        }
+    }
+}
+
+object LossyNullableDoubleSerializer : KSerializer<Double?> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("LossyNullableDouble") {
+        element<Double?>("value")
+    }
+
+    override fun deserialize(decoder: Decoder): Double? {
+        val jsonDecoder = decoder as? JsonDecoder ?: return runCatching { decoder.decodeDouble() }.getOrNull()
+        return when (val element = jsonDecoder.decodeJsonElement()) {
+            JsonNull -> null
+            is JsonPrimitive -> element.doubleOrNull ?: element.contentOrNull?.toDoubleOrNull()
+            else -> null
+        }?.takeIf { it.isFinite() }
+    }
+
+    override fun serialize(encoder: Encoder, value: Double?) {
+        val jsonEncoder = encoder as? JsonEncoder
+        if (jsonEncoder != null) {
+            jsonEncoder.encodeJsonElement(value?.takeIf { it.isFinite() }?.let(::JsonPrimitive) ?: JsonNull)
+        } else if (value != null && value.isFinite()) {
+            encoder.encodeDouble(value)
+        }
+    }
+}
+
 @Serializable
 data class ApprovalRespondResponse(
     val ok: Boolean? = null,
@@ -1384,8 +1455,69 @@ data class ModelSummary(
 data class ProviderSummary(
     val id: String? = null,
     val name: String? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
     val configured: Boolean? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    @SerialName("has_key") val hasKey: Boolean? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    val configurable: Boolean? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    @SerialName("is_self_hosted") val isSelfHosted: Boolean? = null,
+    @SerialName("base_url") val baseUrl: String? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    @SerialName("is_plugin_provider") val isPluginProvider: Boolean? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    @SerialName("is_oauth") val isOauth: Boolean? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    @SerialName("is_custom") val isCustom: Boolean? = null,
+    @SerialName("key_source") val keySource: String? = null,
+    @SerialName("auth_error") val authError: String? = null,
+    val models: List<ProviderModel>? = null,
+    @Serializable(with = LossyNullableIntSerializer::class)
+    @SerialName("models_total") val modelsTotal: Int? = null,
 )
+
+@Serializable
+data class ProvidersResponse(
+    val providers: List<ProviderSummary>? = null,
+    @SerialName("active_provider") val activeProvider: String? = null,
+)
+
+@Serializable(with = ProviderModelSerializer::class)
+data class ProviderModel(
+    val id: String? = null,
+    val label: String? = null,
+)
+
+object ProviderModelSerializer : KSerializer<ProviderModel> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("ProviderModel") {
+        element<String?>("id")
+        element<String?>("label")
+    }
+
+    override fun deserialize(decoder: Decoder): ProviderModel {
+        val element = (decoder as? JsonDecoder)?.decodeJsonElement() ?: return ProviderModel()
+        return when (element) {
+            is JsonPrimitive -> element.contentOrNull?.let { ProviderModel(id = it, label = it) } ?: ProviderModel()
+            is JsonObject -> ProviderModel(
+                id = element["id"].stringOrNull(),
+                label = element["label"].stringOrNull(),
+            )
+            else -> ProviderModel()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: ProviderModel) {
+        val jsonEncoder = encoder as? JsonEncoder ?: return
+        jsonEncoder.encodeJsonElement(
+            buildJsonObject {
+                value.id?.let { put("id", it) }
+                value.label?.let { put("label", it) }
+            },
+        )
+    }
+}
 
 @Serializable
 data class ProfilesResponse(
@@ -1431,6 +1563,8 @@ data class ReasoningResponse(
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
     @SerialName("supported_efforts") val supportedEfforts: List<String>? = null,
     @SerialName("supports_reasoning_effort") val supportsReasoningEffort: Boolean? = null,
+    val display: String? = null,
+    @SerialName("reasoning_display") val reasoningDisplay: String? = null,
 ) {
     val effectiveEffort: String?
         get() = reasoningEffort ?: effort
@@ -1442,6 +1576,7 @@ data class SettingsResponse(
     @SerialName("bot_name") val botName: String? = null,
     val theme: String? = null,
     @SerialName("show_cli_sessions") val showCliSessions: Boolean? = null,
+    @SerialName("show_claude_code_sessions") val showClaudeCodeSessions: Boolean? = null,
     @SerialName("default_model") val defaultModel: String? = null,
     @SerialName("default_model_provider") val defaultModelProvider: String? = null,
 )

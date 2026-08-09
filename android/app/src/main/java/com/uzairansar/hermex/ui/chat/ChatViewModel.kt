@@ -44,6 +44,7 @@ import com.uzairansar.hermex.data.repository.ChatSessionSnapshot
 import com.uzairansar.hermex.data.preferences.StreamingSendBehavior
 import com.uzairansar.hermex.data.repository.ChatRepository
 import com.uzairansar.hermex.data.repository.ResultState
+import com.uzairansar.hermex.data.repository.withLatestAssistantResponseSpeed
 import com.uzairansar.hermex.data.share.SharedAttachment
 import com.uzairansar.hermex.data.share.SharedDraft
 import com.uzairansar.hermex.data.share.SharedDraftStore
@@ -368,6 +369,7 @@ class ChatViewModel internal constructor(
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
     private var completedResponseStreamId: String? = null
+    private var completedResponseTokensPerSecond: Double? = null
     private var completedResponseTitleOverride: String? = null
     private var sendStartJob: Job? = null
     private var sendStartGeneration = 0L
@@ -2217,8 +2219,12 @@ class ChatViewModel internal constructor(
     }
 
     private fun switchReasoning(args: String) {
-        val query = args.trim()
+        val query = args.trim().lowercase()
         val state = _state.value
+        if (query in REASONING_DISPLAY_ARGS) {
+            requestReasoningDisplaySwitch(query, consumedDraft = state.draft)
+            return
+        }
         if (!state.showsReasoningControl) {
             _state.update { it.copy(error = "Reasoning is not available for the selected model.") }
             return
@@ -2229,6 +2235,43 @@ class ChatViewModel internal constructor(
             return
         }
         requestReasoningSwitch(effort, consumedDraft = state.draft)
+    }
+
+    private fun requestReasoningDisplaySwitch(display: String, consumedDraft: String) {
+        val snapshot = _state.value
+        if (snapshot.isRunningSessionAction) return
+        if (snapshot.isStreaming) {
+            _state.update { it.copy(error = "Wait for the current response to finish before changing reasoning display.") }
+            return
+        }
+        val generation = ++reasoningSwitchGeneration
+        reasoningSwitchJob?.cancel()
+        _state.update {
+            it.copy(
+                draft = draftAfterConsuming(it.draft, consumedDraft),
+                isRunningSessionAction = true,
+                error = null,
+                notice = null,
+            )
+        }
+        reasoningSwitchJob = viewModelScope.launch {
+            try {
+                repository.setReasoningDisplay(display)
+                if (generation != reasoningSwitchGeneration) return@launch
+                _state.update { it.copy(isRunningSessionAction = false, notice = "Reasoning display updated.") }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (generation != reasoningSwitchGeneration) return@launch
+                _state.update {
+                    it.copy(
+                        draft = draftAfterFailedConsumption(it.draft, consumedDraft),
+                        isRunningSessionAction = false,
+                        error = error.message ?: "Could not update reasoning display.",
+                    )
+                }
+            }
+        }
     }
 
     private fun switchWorkspace(args: String) {
@@ -3459,8 +3502,15 @@ class ChatViewModel internal constructor(
         flushPendingStreamingAssistant()
         val completedSession = event.session
         val completedTranscript = completedSession?.takeIf { it.messages?.isNotEmpty() == true }
+        val finalTokensPerSecond = event.usage?.tokensPerSecond?.takeIf { it.isFinite() && it > 0.0 }
+        completedResponseTokensPerSecond = finalTokensPerSecond.takeIf { completedTranscript == null }
         if (completedTranscript != null) {
-            val snapshot = repository.snapshotFromCompletedSession(sessionId, completedTranscript, streamId)
+            val snapshot = repository.snapshotFromCompletedSession(
+                sessionId = sessionId,
+                session = completedTranscript,
+                streamId = streamId,
+                turnTokensPerSecond = finalTokensPerSecond,
+            )
             if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
             val completedSessionId = completedTranscript.sessionId?.trim()?.takeIf { it.isNotBlank() }
             if (completedSessionId == null || completedSessionId == sessionId) {
@@ -3474,6 +3524,8 @@ class ChatViewModel internal constructor(
             } else {
                 _state.update { it.copy(openSessionId = completedSessionId) }
             }
+        } else if (finalTokensPerSecond != null) {
+            _state.update { it.copy(messages = it.messages.withLatestAssistantResponseSpeed(finalTokensPerSecond)) }
         }
         event.usage?.let { usage ->
             if (!ChatStreamOwnershipPolicy.stillOwnsStream(streamId, _state.value.activeStreamId)) return
@@ -3560,13 +3612,18 @@ class ChatViewModel internal constructor(
                             return@launch
                         }
                         if (!result.fromCache && result.value.messages.hasAssistantResponseAfterLatestUser()) {
-                            applySessionSnapshot(result.value, fromCache = false) {
+                            val reconciled = result.value.copy(
+                                messages = result.value.messages.withLatestAssistantResponseSpeed(completedResponseTokensPerSecond),
+                            )
+                            repository.cacheMessages(sessionId, reconciled.messages)
+                            applySessionSnapshot(reconciled, fromCache = false) {
                                 it.copy(
                                     sessionTitle = completedResponseTitleOverride ?: it.sessionTitle,
                                     responseCompletionNeedsTranscriptRefresh = false,
                                 )
                             }
                             completedResponseTitleOverride = null
+                            completedResponseTokensPerSecond = null
                             return@launch
                         }
                     }
@@ -3821,6 +3878,7 @@ private fun File.isInside(directory: File): Boolean {
         const val MAXIMUM_ATTACHMENT_BYTES = 20L * 1_024L * 1_024L
 
         val PERSONALITY_CLEAR_ARGS = setOf("none", "default", "clear")
+        val REASONING_DISPLAY_ARGS = setOf("show", "hide", "on", "off")
 
         val BUILTIN_SLASH_COMMAND_NAMES = setOf(
             "help",
@@ -3876,7 +3934,7 @@ private fun File.isInside(directory: File): Boolean {
             `/model <id>` - Switch this session's model.
             `/profile <name>` - Switch profile.
             `/personality <name>` - Set or clear this session's personality.
-            `/reasoning <level>` - Set reasoning effort.
+            `/reasoning show|hide|none|minimal|low|medium|high|xhigh` - Set reasoning display or effort.
             `/workspace <path>` - Switch this session's workspace.
             `/steer <message>` - Steer the active response.
             `/interrupt <message>` - Stop the active response and send a new message.

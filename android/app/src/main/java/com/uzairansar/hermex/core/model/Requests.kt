@@ -195,6 +195,7 @@ data class ProfileCreateRequest(
 @Serializable
 data class UpdateSettingsRequest(
     @SerialName("show_cli_sessions") val showCliSessions: Boolean? = null,
+    @SerialName("show_claude_code_sessions") val showClaudeCodeSessions: Boolean? = null,
 )
 
 @Serializable
@@ -254,7 +255,8 @@ data class MemoryWriteRequest(
 
 @Serializable
 data class ReasoningRequest(
-    val effort: String,
+    val effort: String? = null,
+    val display: String? = null,
     val model: String? = null,
     val provider: String? = null,
 )

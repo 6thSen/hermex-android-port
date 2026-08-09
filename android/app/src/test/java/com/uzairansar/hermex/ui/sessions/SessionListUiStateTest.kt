@@ -60,6 +60,30 @@ class SessionListUiStateTest {
     }
 
     @Test
+    fun automatedSessionKindsHaveIndependentVisibilityControls() {
+        val sessions = listOf(
+            SessionSummary(sessionId = "app", title = "App"),
+            SessionSummary(sessionId = "cli", title = "CLI", isCliSession = true),
+            SessionSummary(sessionId = "claude", title = "Claude", sourceTag = "claude_code"),
+            SessionSummary(sessionId = "subagent", title = "Subagent", rawSource = " SubAgent "),
+        )
+
+        val defaults = SessionListUiState(sessions = sessions)
+        assertEquals(listOf("app", "cli", "claude"), defaults.visibleSessions.map { it.sessionId })
+
+        val onlyApp = defaults.copy(
+            showCliSessions = false,
+            showClaudeCodeSessions = false,
+        )
+        assertEquals(listOf("app"), onlyApp.visibleSessions.map { it.sessionId })
+
+        val showSubagents = onlyApp.copy(
+            sessionRowDisplaySettings = SessionRowDisplaySettings(showSubagentSessions = true),
+        )
+        assertEquals(listOf("app", "subagent"), showSubagents.visibleSessions.map { it.sessionId })
+    }
+
+    @Test
     fun visibleSessionsSortPinnedFirstThenByMostRecentActivity() {
         val state = SessionListUiState(
             sessions = listOf(

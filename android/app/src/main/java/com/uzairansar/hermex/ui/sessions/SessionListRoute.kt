@@ -294,9 +294,12 @@ fun SessionListRoute(
                 } else {
                     if (!searchExpanded) {
                         item {
-                            UtilityRows(onOpenPanel = onOpenPanel)
+                            UtilityRows(
+                                settings = state.mainPageDisplaySettings,
+                                onOpenPanel = onOpenPanel,
+                            )
                         }
-                        if (!state.isSingleProfileMode) {
+                        if (state.mainPageDisplaySettings.showActiveProfile && !state.isSingleProfileMode) {
                             item {
                                 ActiveProfileSection(
                                     state = state,
@@ -306,8 +309,9 @@ fun SessionListRoute(
                                 )
                             }
                         }
-                        item {
-                            ProjectSection(
+                        if (state.mainPageDisplaySettings.showProjects) {
+                            item {
+                                ProjectSection(
                                 projects = state.projects,
                                 sessions = state.sessions,
                                 selectedProjectId = state.selectedProjectId,
@@ -322,7 +326,8 @@ fun SessionListRoute(
                                 },
                                 onRenameProject = viewModel::requestRenameProject,
                                 onDeleteProject = viewModel::requestDeleteProject,
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -655,6 +660,7 @@ private fun NewChatFloatingButton(
 
 @Composable
 private fun UtilityRows(
+    settings: com.uzairansar.hermex.data.preferences.MainPageDisplaySettings,
     onOpenPanel: (String) -> Unit,
 ) {
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -664,20 +670,25 @@ private fun UtilityRows(
             .padding(top = 8.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        val rows = buildList {
+            if (settings.showTasks) add(Triple(R.string.nav_tasks, R.drawable.ic_lucide_calendar_clock, "tasks"))
+            if (settings.showSkills) add(Triple(R.string.nav_skills, R.drawable.ic_lucide_hammer, "skills"))
+            if (settings.showMemory) add(Triple(R.string.nav_memory, R.drawable.ic_lucide_brain, "memory"))
+            if (settings.showInsights) add(Triple(R.string.nav_insights, R.drawable.ic_lucide_chart_column_increasing, "insights"))
+        }
         if (isLandscape) {
-            Row(Modifier.fillMaxWidth()) {
-                UtilityRow(stringResource(R.string.nav_tasks), R.drawable.ic_lucide_calendar_clock, "tasks", onOpenPanel, Modifier.weight(1f))
-                UtilityRow(stringResource(R.string.nav_skills), R.drawable.ic_lucide_hammer, "skills", onOpenPanel, Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth()) {
-                UtilityRow(stringResource(R.string.nav_memory), R.drawable.ic_lucide_brain, "memory", onOpenPanel, Modifier.weight(1f))
-                UtilityRow(stringResource(R.string.nav_insights), R.drawable.ic_lucide_chart_column_increasing, "insights", onOpenPanel, Modifier.weight(1f))
+            rows.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth()) {
+                    pair.forEach { (label, icon, destination) ->
+                        UtilityRow(stringResource(label), icon, destination, onOpenPanel, Modifier.weight(1f))
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         } else {
-            UtilityRow(stringResource(R.string.nav_tasks), R.drawable.ic_lucide_calendar_clock, "tasks", onOpenPanel)
-            UtilityRow(stringResource(R.string.nav_skills), R.drawable.ic_lucide_hammer, "skills", onOpenPanel)
-            UtilityRow(stringResource(R.string.nav_memory), R.drawable.ic_lucide_brain, "memory", onOpenPanel)
-            UtilityRow(stringResource(R.string.nav_insights), R.drawable.ic_lucide_chart_column_increasing, "insights", onOpenPanel)
+            rows.forEach { (label, icon, destination) ->
+                UtilityRow(stringResource(label), icon, destination, onOpenPanel)
+            }
         }
     }
 }

@@ -1,1 +1,1 @@
-Fixes transcript media authorization, gateway approval IDs, oversized token-count decoding, and large offline transcript loading. Adds workspace registry management, protects read-only sessions, and introduces the capability-validated Kanban compatibility foundation.
+Adds independent CLI, Claude Code, cron, and subagent session filters; customizable main-page and chat controls; provider status details; response-speed display; server/on-device dictation choices; and reasoning display commands.

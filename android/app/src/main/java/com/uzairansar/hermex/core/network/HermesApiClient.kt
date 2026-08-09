@@ -232,16 +232,20 @@ class HermesApiClient(
             apiKey = apiKey,
         ),
     )
-    suspend fun providers(): ModelCatalogResponse = get(Endpoint.Providers)
+    suspend fun providers(): ProvidersResponse = get(Endpoint.Providers)
     suspend fun settings(): SettingsResponse = get(Endpoint.Settings)
     suspend fun updateSettings(showCliSessions: Boolean): SettingsResponse =
         post(Endpoint.Settings, UpdateSettingsRequest(showCliSessions = showCliSessions))
+    suspend fun updateClaudeCodeSessionVisibility(enabled: Boolean): SettingsResponse =
+        post(Endpoint.Settings, UpdateSettingsRequest(showClaudeCodeSessions = enabled))
     suspend fun updatesCheck(): UpdatesCheckResponse = get(Endpoint.UpdatesCheck)
     suspend fun updatesCheckForced(): UpdatesCheckResponse = post(Endpoint.UpdatesCheck, UpdatesCheckForceRequest(force = true))
     suspend fun applyUpdate(target: String = "webui"): UpdatesApplyResponse = post(Endpoint.UpdatesApply, UpdatesApplyRequest(target))
     suspend fun reasoning(model: String? = null, provider: String? = null): ReasoningResponse = get(Endpoint.Reasoning(model, provider))
     suspend fun setReasoning(effort: String, model: String? = null, provider: String? = null): ReasoningResponse =
-        post(Endpoint.Reasoning(model, provider), ReasoningRequest(effort, model, provider))
+        post(Endpoint.Reasoning(model, provider), ReasoningRequest(effort = effort, model = model, provider = provider))
+    suspend fun setReasoningDisplay(display: String): ReasoningResponse =
+        post(Endpoint.Reasoning(), ReasoningRequest(display = display))
     suspend fun personalities(): PersonalitiesResponse = get(Endpoint.Personalities)
     suspend fun setPersonality(sessionId: String, name: String): PersonalitySetResponse =
         post(Endpoint.SetPersonality, SetPersonalityRequest(sessionId, name))
