@@ -1,22 +1,42 @@
 package com.uzairansar.hermex
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.uzairansar.hermex.ui.kanban.KanbanLabRoute
 import com.uzairansar.hermex.ui.kanban.KanbanAvailability
 import com.uzairansar.hermex.ui.kanban.KanbanBoardContent
 import com.uzairansar.hermex.ui.kanban.KanbanLabUiState
+import com.uzairansar.hermex.ui.kanban.KanbanCardDetailContent
+import com.uzairansar.hermex.ui.kanban.KanbanCardDetailAvailability
+import com.uzairansar.hermex.ui.kanban.KanbanCardDetailUiState
+import com.uzairansar.hermex.ui.kanban.KanbanWorkerLogState
 import com.uzairansar.hermex.core.model.KanbanBoardSnapshot
 import com.uzairansar.hermex.core.model.KanbanBoardSummary
+import com.uzairansar.hermex.core.model.KanbanCardDetailEnvelope
 import com.uzairansar.hermex.core.model.KanbanCardSummary
 import com.uzairansar.hermex.core.model.KanbanColumn
+import com.uzairansar.hermex.core.model.KanbanComment
+import com.uzairansar.hermex.core.model.KanbanDependencyLinks
+import com.uzairansar.hermex.core.model.KanbanDetailEvent
+import com.uzairansar.hermex.core.model.KanbanDetailEventPayload
+import com.uzairansar.hermex.core.model.KanbanDispatchRun
+import com.uzairansar.hermex.core.model.KanbanWorkerLog
 import com.uzairansar.hermex.ui.theme.HermexTheme
 import java.util.concurrent.CopyOnWriteArrayList
 import mockwebserver3.Dispatcher
@@ -198,6 +218,144 @@ class KanbanLabInstrumentedTest {
 
         composeRule.onNodeWithTag("kanban_offline_notice").assertIsDisplayed()
         composeRule.onNodeWithText("CARD-1").assertIsDisplayed()
+    }
+
+    @Test
+    fun cardDetailShowsMarkdownCommentsHistoryAndLoadsWorkerLogOnlyOnRequest() {
+        var workerLogCalls = 0
+        val commentBodies = mutableListOf<String>()
+        val card = KanbanCardSummary(
+            cardId = "CARD-1",
+            title = "Open detail",
+            status = "todo",
+            body = "## Detailed heading\n- rendered item",
+            currentRunId = "RUN-1",
+            workerId = "worker-7",
+        )
+        val detail = KanbanCardDetailEnvelope(
+            card = card,
+            comments = listOf(KanbanComment(commentId = "COMMENT-1", cardId = "CARD-1", author = "builder", body = "Existing **comment**")),
+            events = listOf(KanbanDetailEvent(eventId = "EVENT-1", cardId = "CARD-1", kind = "updated", payload = KanbanDetailEventPayload(summary = "Status changed"))),
+            links = KanbanDependencyLinks(prerequisites = listOf("CARD-P"), dependents = listOf("CARD-C")),
+            runs = listOf(KanbanDispatchRun(runId = "RUN-1", status = "done", summary = "Worker completed")),
+            readOnly = false,
+        )
+        composeRule.setContent {
+            var selected by remember { mutableStateOf(false) }
+            var draft by remember { mutableStateOf("") }
+            var submitted by remember { mutableStateOf(false) }
+            var workerLog by remember { mutableStateOf<KanbanWorkerLogState>(KanbanWorkerLogState.Idle) }
+            HermexTheme {
+                if (!selected) {
+                    KanbanBoardContent(
+                        state = liveUiState().copy(
+                            selectedStatus = "todo",
+                            snapshot = KanbanBoardSnapshot(
+                                columns = listOf(KanbanColumn(name = "todo", cards = listOf(card))),
+                                changed = true,
+                                readOnly = false,
+                            ),
+                        ),
+                        onRefresh = {},
+                        onSearch = {},
+                        onSelectStatus = {},
+                        onClearFilters = {},
+                        onOpenCard = { selected = true },
+                    )
+                } else {
+                    KanbanCardDetailContent(
+                        state = KanbanCardDetailUiState(
+                            availability = KanbanCardDetailAvailability.Content,
+                            detail = detail,
+                            parentAllowsWrites = true,
+                            workerLog = workerLog,
+                            commentDraft = draft,
+                            commentSubmission = if (submitted) {
+                                com.uzairansar.hermex.ui.kanban.KanbanCommentSubmissionState.Succeeded
+                            } else {
+                                com.uzairansar.hermex.ui.kanban.KanbanCommentSubmissionState.Idle
+                            },
+                        ),
+                        onCommentDraft = { draft = it },
+                        onSubmitComment = {
+                            commentBodies += draft
+                            draft = ""
+                            submitted = true
+                        },
+                        onRetryComment = {},
+                        onLoadWorkerLog = {
+                            workerLogCalls += 1
+                            workerLog = KanbanWorkerLogState.Loaded(
+                                KanbanWorkerLog(cardId = "CARD-1", exists = true, content = "explicit worker output", truncated = false),
+                            )
+                        },
+                        onOpenRelatedCard = {},
+                    )
+                }
+            }
+        }
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("Open detail").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag("kanban_card_CARD-1").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("Detailed heading", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasText("builder"))
+        composeRule.onNodeWithText("builder").assertIsDisplayed()
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasText("CARD-P"))
+        composeRule.onNodeWithText("CARD-P").assertIsDisplayed()
+        assertTrue(workerLogCalls == 0)
+
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_operational_history"))
+        composeRule.onNodeWithTag("kanban_operational_history").performClick()
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_detail_events"))
+        composeRule.onNodeWithTag("kanban_detail_events").assertIsDisplayed()
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_detail_runs"))
+        composeRule.onNodeWithTag("kanban_detail_runs").assertIsDisplayed()
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_load_worker_log"))
+        composeRule.onNodeWithTag("kanban_load_worker_log").performClick()
+        composeRule.waitUntil(5_000) { workerLogCalls == 1 }
+        composeRule.onNodeWithText("explicit worker output").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_comment_draft"))
+        composeRule.onNodeWithTag("kanban_comment_draft").performTextInput("New comment")
+        composeRule.onNodeWithTag("kanban_comment_send").performClick()
+        composeRule.waitUntil(5_000) { commentBodies == listOf("New comment") }
+        composeRule.onNodeWithText("Added").assertIsDisplayed()
+    }
+
+    @Test
+    fun readOnlyStaleDetailHidesCommentsAndDisablesWorkerLog() {
+        val detail = KanbanCardDetailEnvelope(
+            card = KanbanCardSummary(cardId = "CARD-1", title = "Cached", status = "todo"),
+            readOnly = true,
+        )
+        composeRule.setContent {
+            HermexTheme {
+                KanbanCardDetailContent(
+                    state = KanbanCardDetailUiState(
+                        availability = KanbanCardDetailAvailability.Content,
+                        detail = detail,
+                        isStale = true,
+                        parentAllowsWrites = false,
+                        workerLog = KanbanWorkerLogState.Idle,
+                    ),
+                    onCommentDraft = {},
+                    onSubmitComment = {},
+                    onRetryComment = {},
+                    onLoadWorkerLog = {},
+                    onOpenRelatedCard = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("kanban_comment_draft").assertDoesNotExist()
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_operational_history"))
+        composeRule.onNodeWithTag("kanban_operational_history").performClick()
+        composeRule.onNodeWithTag("kanban_card_detail").performScrollToNode(hasTestTag("kanban_load_worker_log"))
+        composeRule.onNodeWithTag("kanban_load_worker_log").assertIsNotEnabled()
     }
 
     private fun liveUiState(

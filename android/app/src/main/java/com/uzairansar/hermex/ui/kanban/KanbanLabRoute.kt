@@ -1,5 +1,6 @@
 package com.uzairansar.hermex.ui.kanban
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -85,6 +86,7 @@ internal fun KanbanLabRoute(
     val viewModel: KanbanLabViewModel = viewModel(key = viewModelKey, factory = factory)
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showsFilters by rememberSaveable { mutableStateOf(false) }
+    var cardNavigationStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner, viewModel) {
@@ -106,28 +108,54 @@ internal fun KanbanLabRoute(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        KanbanTopBar(
-            state = state,
-            onBack = onBack,
-            onRefresh = viewModel::load,
-            onSelectBoard = viewModel::selectBoard,
-            onShowFilters = { showsFilters = true },
+    val selectedBoardSlug = state.selectedBoardSlug
+    val selectedCardId = cardNavigationStack.lastOrNull()
+    val showsCardDetail = selectedCardId != null &&
+        selectedBoardSlug != null &&
+        state.availability == KanbanAvailability.Content
+    BackHandler(enabled = showsCardDetail) { cardNavigationStack = cardNavigationStack.dropLast(1) }
+
+    if (showsCardDetail) {
+        KanbanCardDetailRoute(
+            repository = repository,
+            board = selectedBoardSlug,
+            cardId = checkNotNull(selectedCardId),
+            parentOffline = state.isOffline,
+            parentAllowsWrites = state.snapshot?.readOnly == false && state.warnings.none {
+                it == KanbanCompatibilityWarning.ReadOnly ||
+                    it == KanbanCompatibilityWarning.WriteCapabilityUnavailable
+            },
+            refreshRevision = state.detailRefreshRevision,
+            onBack = { cardNavigationStack = cardNavigationStack.dropLast(1) },
+            onOpenRelatedCard = { related ->
+                if (related != cardNavigationStack.lastOrNull()) cardNavigationStack = cardNavigationStack + related
+            },
         )
-        when (state.availability) {
-            KanbanAvailability.Loading -> KanbanLoading()
-            KanbanAvailability.Content -> KanbanBoardContent(
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            KanbanTopBar(
                 state = state,
+                onBack = onBack,
                 onRefresh = viewModel::load,
-                onSearch = viewModel::setSearchQuery,
-                onSelectStatus = viewModel::selectStatus,
-                onClearFilters = viewModel::clearFilters,
+                onSelectBoard = viewModel::selectBoard,
+                onShowFilters = { showsFilters = true },
             )
-            else -> KanbanUnavailable(state.availability, viewModel::load)
+            when (state.availability) {
+                KanbanAvailability.Loading -> KanbanLoading()
+                KanbanAvailability.Content -> KanbanBoardContent(
+                    state = state,
+                    onRefresh = viewModel::load,
+                    onSearch = viewModel::setSearchQuery,
+                    onSelectStatus = viewModel::selectStatus,
+                    onClearFilters = viewModel::clearFilters,
+                    onOpenCard = { cardNavigationStack = listOf(it) },
+                )
+                else -> KanbanUnavailable(state.availability, viewModel::load)
+            }
         }
     }
 
-    if (showsFilters && state.availability == KanbanAvailability.Content) {
+    if (showsFilters && !showsCardDetail && state.availability == KanbanAvailability.Content) {
         KanbanFiltersSheet(
             state = state,
             onDismiss = { showsFilters = false },
@@ -246,6 +274,7 @@ internal fun KanbanBoardContent(
     onSearch: (String) -> Unit,
     onSelectStatus: (String) -> Unit,
     onClearFilters: () -> Unit,
+    onOpenCard: (String) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         when {
@@ -306,7 +335,7 @@ internal fun KanbanBoardContent(
             if (cards.isEmpty()) {
                 KanbanEmptyState(state.hasActiveFilters, onClearFilters)
             } else {
-                KanbanCardList(state, cards)
+                KanbanCardList(state, cards, onOpenCard)
             }
         }
     }
@@ -360,6 +389,7 @@ private fun KanbanCompatibilityBanner(warnings: List<KanbanCompatibilityWarning>
 private fun KanbanCardList(
     state: KanbanLabUiState,
     cards: List<KanbanCardSummary>,
+    onOpenCard: (String) -> Unit,
 ) {
     val groups = if (state.filters.groupByProfile) groupedKanbanCards(cards) else listOf(KanbanCardGroup(null, cards))
     LazyColumn(
@@ -380,13 +410,15 @@ private fun KanbanCardList(
                     )
                 }
             }
-            items(group.cards, key = { it.cardId.orEmpty() }) { card -> KanbanCardRow(card) }
+            items(group.cards, key = { it.cardId.orEmpty() }) { card ->
+                KanbanCardRow(card, onOpenCard)
+            }
         }
     }
 }
 
 @Composable
-private fun KanbanCardRow(card: KanbanCardSummary) {
+private fun KanbanCardRow(card: KanbanCardSummary, onOpenCard: (String) -> Unit) {
     val title = card.title?.trim().takeUnless { it.isNullOrEmpty() } ?: localizedString("Card")
     val id = card.cardId ?: localizedString("Unknown")
     val profile = card.assignee?.trim().takeUnless { it.isNullOrEmpty() } ?: localizedString("Unassigned")
@@ -404,6 +436,7 @@ private fun KanbanCardRow(card: KanbanCardSummary) {
         modifier = Modifier
             .fillMaxWidth()
             .hermexGlass(shape = HermexCardShape, castsShadow = false, surfaceLevel = HermexSurfaceLevel.Raised)
+            .clickable(enabled = card.cardId != null) { card.cardId?.let(onOpenCard) }
             .semantics {
                 contentDescription = listOfNotNull(
                     id,

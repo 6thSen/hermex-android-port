@@ -77,6 +77,7 @@ internal data class KanbanLabUiState(
     val refreshFailed: Boolean = false,
     val isOffline: Boolean = false,
     val liveUpdatesDelayed: Boolean = false,
+    val detailRefreshRevision: Int = 0,
 ) {
     val selectedBoard: KanbanBoardSummary?
         get() = boards.firstOrNull { it.slug?.trim() == selectedBoardSlug }
@@ -170,6 +171,7 @@ internal class KanbanLabViewModel(
                     searchQuery = previous.searchQuery,
                     isOffline = false,
                     liveUpdatesDelayed = false,
+                    detailRefreshRevision = previous.detailRefreshRevision + 1,
                 )
                 startLiveUpdatesIfReady()
             } catch (error: CancellationException) {
@@ -286,6 +288,7 @@ internal class KanbanLabViewModel(
                     refreshFailed = false,
                     isOffline = false,
                     liveUpdatesDelayed = false,
+                    detailRefreshRevision = previous.detailRefreshRevision + 1,
                 )
                 startLiveUpdatesIfReady()
             } catch (error: CancellationException) {
@@ -456,6 +459,7 @@ internal class KanbanLabViewModel(
                 warnings = warningsFor(report, board, snapshot),
                 refreshFailed = false,
                 isOffline = false,
+                detailRefreshRevision = current.detailRefreshRevision + 1,
             )
             true
         } catch (error: CancellationException) {

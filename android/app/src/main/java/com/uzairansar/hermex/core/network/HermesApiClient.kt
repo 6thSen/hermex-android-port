@@ -280,6 +280,12 @@ class HermesApiClient(
     suspend fun kanbanEvents(board: String, since: Int, limit: Int = 200): KanbanEventsEnvelope =
         get(Endpoint.KanbanEvents(board, since, limit))
     fun kanbanEventsStreamUrl(board: String, since: Int): HttpUrl = Endpoint.KanbanEventsStream(board, since).url(baseUrl)
+    suspend fun kanbanCardDetail(cardId: String, board: String): KanbanCardDetailEnvelope =
+        get(Endpoint.KanbanCard(cardId, board))
+    suspend fun kanbanWorkerLog(cardId: String, board: String, tailBytes: Int = 65_536): KanbanWorkerLog =
+        get(Endpoint.KanbanCardLog(cardId, board, tailBytes))
+    suspend fun addKanbanComment(cardId: String, board: String, body: String): KanbanAddCommentResponse =
+        post(Endpoint.KanbanCardComments(cardId, board), KanbanCommentRequest(body))
     suspend fun skills(): SkillsResponse = get(Endpoint.Skills)
     suspend fun skillContent(name: String, file: String? = null): SkillContentResponse = get(Endpoint.SkillContent(name, file))
     suspend fun toggleSkill(name: String, enabled: Boolean): ToggleSkillResponse = post(Endpoint.ToggleSkill, ToggleSkillRequest(name, enabled))

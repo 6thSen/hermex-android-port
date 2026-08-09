@@ -5,6 +5,14 @@ import com.uzairansar.hermex.core.model.KanbanAssigneeValue
 import com.uzairansar.hermex.core.model.KanbanBoardSnapshot
 import com.uzairansar.hermex.core.model.KanbanBoardSummary
 import com.uzairansar.hermex.core.model.KanbanCardSummary
+import com.uzairansar.hermex.core.model.KanbanCardDetailEnvelope
+import com.uzairansar.hermex.core.model.KanbanComment
+import com.uzairansar.hermex.core.model.KanbanDetailEvent
+import com.uzairansar.hermex.core.model.KanbanDetailEventPayload
+import com.uzairansar.hermex.core.model.KanbanDependencyLinks
+import com.uzairansar.hermex.core.model.KanbanDispatchRun
+import com.uzairansar.hermex.core.model.KanbanWorkerLog
+import com.uzairansar.hermex.core.model.KanbanAddCommentResponse
 import com.uzairansar.hermex.core.model.KanbanColumn
 import com.uzairansar.hermex.core.model.KanbanCompatibilityReport
 import com.uzairansar.hermex.core.model.KanbanCompatibilityWarning
@@ -75,6 +83,64 @@ internal class KanbanLabFixtureDataSource(
             else -> awaitCancellation()
         }
     }
+
+    override suspend fun cardDetail(cardId: String, board: String): KanbanCardDetailEnvelope {
+        val card = snapshot(board, KanbanBrowseFilters(includeArchived = true)).allCards()
+            .firstOrNull { it.cardId == cardId }
+            ?: throw ApiError.Http(404, null)
+        return KanbanCardDetailEnvelope(
+            card = card.copy(
+                createdAt = "2026-08-09T08:00:00Z",
+                updatedAt = "2026-08-09T09:00:00Z",
+                workspaceKind = "worktree",
+                workspacePath = "/fixture/worktree",
+                skills = listOf("android", "review"),
+                maxRuntimeSeconds = 3_600,
+                currentRunId = "run-fixture",
+                claimLock = "claim-fixture",
+                claimExpires = "2026-08-09T10:00:00Z",
+                workerId = "worker-fixture",
+            ),
+            comments = listOf(
+                KanbanComment("1", cardId, "builder", "Initial fixture comment", "2026-08-09T08:10:00Z"),
+            ),
+            events = listOf(
+                KanbanDetailEvent(
+                    eventId = "41",
+                    cardId = cardId,
+                    runId = "run-fixture",
+                    kind = "status_changed",
+                    createdAt = "2026-08-09T08:20:00Z",
+                    payload = KanbanDetailEventPayload(status = card.status, summary = "Fixture status updated"),
+                ),
+            ),
+            links = KanbanDependencyLinks(prerequisites = listOf("CARD-0"), dependents = listOf("CARD-9")),
+            runs = listOf(
+                KanbanDispatchRun(
+                    runId = "run-fixture",
+                    status = "completed",
+                    outcome = "success",
+                    summary = "Fixture dispatch completed",
+                    startedAt = "2026-08-09T08:30:00Z",
+                    finishedAt = "2026-08-09T08:45:00Z",
+                    workerId = "worker-fixture",
+                ),
+            ),
+            readOnly = scenario == "read-only",
+        )
+    }
+
+    override suspend fun workerLog(cardId: String, board: String, tailBytes: Int): KanbanWorkerLog =
+        KanbanWorkerLog(
+            cardId = cardId,
+            exists = true,
+            sizeBytes = 36,
+            content = "Fixture worker log\nCompleted safely.",
+            truncated = false,
+        )
+
+    override suspend fun addComment(cardId: String, board: String, body: String): KanbanAddCommentResponse =
+        KanbanAddCommentResponse(ok = true, commentId = "fixture-new", readOnly = scenario == "read-only")
 
     private fun snapshot(board: String, filters: KanbanBrowseFilters): KanbanBoardSnapshot {
         val cards = when {

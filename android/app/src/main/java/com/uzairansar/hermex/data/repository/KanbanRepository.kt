@@ -5,6 +5,9 @@ import com.uzairansar.hermex.core.model.KanbanCompatibilityWarning
 import com.uzairansar.hermex.core.model.KanbanContractViolation
 import com.uzairansar.hermex.core.model.KanbanEventsEnvelope
 import com.uzairansar.hermex.core.model.KanbanBoardSnapshot
+import com.uzairansar.hermex.core.model.KanbanCardDetailEnvelope
+import com.uzairansar.hermex.core.model.KanbanWorkerLog
+import com.uzairansar.hermex.core.model.KanbanAddCommentResponse
 import com.uzairansar.hermex.core.model.KanbanStats
 import com.uzairansar.hermex.core.model.KanbanAssigneeHistory
 import com.uzairansar.hermex.core.network.HermesApiClient
@@ -33,6 +36,15 @@ interface KanbanBrowseDataSource {
     fun eventStream(board: String, since: Int): Flow<KanbanStreamFrame> = flow {
         throw IOException("Kanban live updates are unavailable.")
     }
+
+    suspend fun cardDetail(cardId: String, board: String): KanbanCardDetailEnvelope =
+        throw UnsupportedOperationException("Kanban Card detail is unavailable.")
+
+    suspend fun workerLog(cardId: String, board: String, tailBytes: Int = 65_536): KanbanWorkerLog =
+        throw UnsupportedOperationException("Kanban worker log is unavailable.")
+
+    suspend fun addComment(cardId: String, board: String, body: String): KanbanAddCommentResponse =
+        throw UnsupportedOperationException("Kanban comments are unavailable.")
 }
 
 class KanbanRepository(
@@ -83,6 +95,23 @@ class KanbanRepository(
         streamingClient?.stream(eventsStreamUrl(board, since)) ?: super.eventStream(board, since)
 
     fun eventsStreamUrl(board: String, since: Int): HttpUrl = client.kanbanEventsStreamUrl(board, since)
+
+    override suspend fun cardDetail(cardId: String, board: String): KanbanCardDetailEnvelope =
+        client.kanbanCardDetail(cardId, board).also { detail ->
+            val card = detail.card ?: throw KanbanContractViolation.MissingCardIdentity
+            if (card.cardId?.trim() != cardId.trim()) throw KanbanContractViolation.MissingCardIdentity
+            if (card.status.isNullOrBlank()) throw KanbanContractViolation.MissingCardStatus
+        }
+
+    override suspend fun workerLog(cardId: String, board: String, tailBytes: Int): KanbanWorkerLog =
+        client.kanbanWorkerLog(cardId, board, tailBytes).also { log ->
+            if (log.cardId?.trim() != cardId.trim() || log.exists == null) {
+                throw KanbanContractViolation.MissingCardIdentity
+            }
+        }
+
+    override suspend fun addComment(cardId: String, board: String, body: String): KanbanAddCommentResponse =
+        client.addKanbanComment(cardId, board, body)
 
     private fun validateSnapshot(snapshot: KanbanBoardSnapshot) {
         val columns = snapshot.columns

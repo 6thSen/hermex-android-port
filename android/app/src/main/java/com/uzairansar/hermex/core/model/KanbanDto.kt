@@ -133,6 +133,18 @@ data class KanbanCardSummary(
     @SerialName("max_runtime_seconds")
     @Serializable(with = LossyNullableIntSerializer::class)
     val maxRuntimeSeconds: Int? = null,
+    @SerialName("current_run_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val currentRunId: String? = null,
+    @SerialName("claim_lock")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val claimLock: String? = null,
+    @SerialName("claim_expires")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val claimExpires: String? = null,
+    @SerialName("worker_pid")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val workerId: String? = null,
 ) {
     val hasSupportedStatus: Boolean
         get() = status?.trim()?.lowercase() in supportedKanbanStatuses
@@ -184,7 +196,9 @@ data class KanbanEventsEnvelope(
     @SerialName("latest_event_id")
     @Serializable(with = LossyNullableIntSerializer::class)
     val latestEventId: Int? = null,
-    @SerialName("read_only") val readOnly: Boolean? = null,
+    @SerialName("read_only")
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    val readOnly: Boolean? = null,
 )
 
 @Serializable
@@ -198,6 +212,153 @@ data class KanbanEvent(
     @SerialName("created_at")
     @Serializable(with = LossyNullableIntSerializer::class)
     val createdAt: Int? = null,
+)
+
+@Serializable
+data class KanbanCardDetailEnvelope(
+    @SerialName("task") val card: KanbanCardSummary? = null,
+    @Serializable(with = LossyNullableKanbanCommentListSerializer::class)
+    val comments: List<KanbanComment>? = null,
+    @Serializable(with = LossyNullableKanbanDetailEventListSerializer::class)
+    val events: List<KanbanDetailEvent>? = null,
+    val links: KanbanDependencyLinks? = null,
+    @Serializable(with = LossyNullableKanbanDispatchRunListSerializer::class)
+    val runs: List<KanbanDispatchRun>? = null,
+    @SerialName("read_only") val readOnly: Boolean? = null,
+)
+
+@Serializable
+data class KanbanComment(
+    @SerialName("id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val commentId: String? = null,
+    @SerialName("task_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val cardId: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val author: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val body: String? = null,
+    @SerialName("created_at")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class KanbanDetailEvent(
+    @SerialName("id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val eventId: String? = null,
+    @SerialName("task_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val cardId: String? = null,
+    @SerialName("run_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val runId: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val kind: String? = null,
+    @SerialName("created_at")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val createdAt: String? = null,
+    val payload: KanbanDetailEventPayload? = null,
+)
+
+@Serializable
+data class KanbanDetailEventPayload(
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val status: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val reason: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val summary: String? = null,
+    @Serializable(with = LossyNullableStringListSerializer::class)
+    val fields: List<String>? = null,
+)
+
+@Serializable
+data class KanbanDependencyLinks(
+    @SerialName("parents")
+    @Serializable(with = LossyNullableStringListSerializer::class)
+    val prerequisites: List<String>? = null,
+    @SerialName("children")
+    @Serializable(with = LossyNullableStringListSerializer::class)
+    val dependents: List<String>? = null,
+)
+
+@Serializable
+data class KanbanDispatchRun(
+    @SerialName("id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val runId: String? = null,
+    @SerialName("run_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val alternateRunId: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val status: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val outcome: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val summary: String? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val error: String? = null,
+    @SerialName("started_at")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val startedAt: String? = null,
+    @SerialName("finished_at")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val finishedAt: String? = null,
+    @SerialName("ended_at")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val endedAt: String? = null,
+    @SerialName("worker")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val workerId: String? = null,
+    @SerialName("worker_pid")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val workerPid: String? = null,
+    @SerialName("log_tail")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val logTail: String? = null,
+) {
+    val stableRunId: String?
+        get() = runId ?: alternateRunId
+    val completedAt: String?
+        get() = endedAt ?: finishedAt
+    val stableWorkerId: String?
+        get() = workerPid ?: workerId
+}
+
+@Serializable
+data class KanbanWorkerLog(
+    @SerialName("task_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val cardId: String? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    val exists: Boolean? = null,
+    @SerialName("size_bytes")
+    @Serializable(with = LossyNullableIntSerializer::class)
+    val sizeBytes: Int? = null,
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val content: String? = null,
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    val truncated: Boolean? = null,
+)
+
+@Serializable
+data class KanbanAddCommentResponse(
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    val ok: Boolean? = null,
+    @SerialName("comment_id")
+    @Serializable(with = LossyNullableStringSerializer::class)
+    val commentId: String? = null,
+    @SerialName("read_only")
+    @Serializable(with = LossyNullableBooleanSerializer::class)
+    val readOnly: Boolean? = null,
+)
+
+@Serializable
+data class KanbanCommentRequest(
+    val body: String,
 )
 
 data class KanbanCompatibilityReport(
@@ -243,6 +404,24 @@ object LossyNullableIntMapSerializer : KSerializer<Map<String, Int>?> {
         jsonEncoder.encodeJsonElement(
             value?.let { values -> buildJsonObject { values.forEach { (key, count) -> put(key, count) } } } ?: JsonNull,
         )
+    }
+}
+
+object LossyNullableStringSerializer : KSerializer<String?> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("LossyNullableString")
+
+    override fun deserialize(decoder: Decoder): String? {
+        val jsonDecoder = decoder as? JsonDecoder ?: return null
+        return when (val element = jsonDecoder.decodeJsonElement()) {
+            JsonNull -> null
+            is JsonPrimitive -> element.contentOrNull
+            else -> null
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: String?) {
+        val jsonEncoder = encoder as? JsonEncoder ?: return
+        jsonEncoder.encodeJsonElement(value?.let(::JsonPrimitive) ?: JsonNull)
     }
 }
 
@@ -308,6 +487,24 @@ object LossyNullableKanbanCardListSerializer : KSerializer<List<KanbanCardSummar
         decodeList(decoder)
 
     override fun serialize(encoder: Encoder, value: List<KanbanCardSummary>?) = encodeList(encoder, value)
+}
+
+object LossyNullableKanbanCommentListSerializer : KSerializer<List<KanbanComment>?> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("LossyNullableKanbanCommentList")
+    override fun deserialize(decoder: Decoder): List<KanbanComment>? = decodeList(decoder)
+    override fun serialize(encoder: Encoder, value: List<KanbanComment>?) = encodeList(encoder, value)
+}
+
+object LossyNullableKanbanDetailEventListSerializer : KSerializer<List<KanbanDetailEvent>?> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("LossyNullableKanbanDetailEventList")
+    override fun deserialize(decoder: Decoder): List<KanbanDetailEvent>? = decodeList(decoder)
+    override fun serialize(encoder: Encoder, value: List<KanbanDetailEvent>?) = encodeList(encoder, value)
+}
+
+object LossyNullableKanbanDispatchRunListSerializer : KSerializer<List<KanbanDispatchRun>?> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("LossyNullableKanbanDispatchRunList")
+    override fun deserialize(decoder: Decoder): List<KanbanDispatchRun>? = decodeList(decoder)
+    override fun serialize(encoder: Encoder, value: List<KanbanDispatchRun>?) = encodeList(encoder, value)
 }
 
 private inline fun <reified Value> decodeList(decoder: Decoder): List<Value>? {
