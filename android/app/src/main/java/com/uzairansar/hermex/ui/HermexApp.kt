@@ -40,9 +40,13 @@ import androidx.navigation.navDeepLink
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.uzairansar.hermex.AppContainer
+import com.uzairansar.hermex.BuildConfig
 import com.uzairansar.hermex.data.repository.AuthState
 import com.uzairansar.hermex.ui.chat.ChatRoute
 import com.uzairansar.hermex.ui.git.GitRoute
+import com.uzairansar.hermex.ui.kanban.KanbanLabRoute
+import com.uzairansar.hermex.ui.kanban.KanbanLabFixtureDataSource
+import com.uzairansar.hermex.ui.kanban.supportedKanbanLabScenarios
 import com.uzairansar.hermex.ui.localization.localizedString
 import com.uzairansar.hermex.ui.onboarding.OnboardingRoute
 import com.uzairansar.hermex.ui.panels.PanelsRoute
@@ -137,7 +141,10 @@ fun HermexApp(
                 if (route != null) {
                     val requestedServerId = intent.hermexServerId()
                     val loggedIn = latestAuthState as? AuthState.LoggedIn
-                    if (loggedIn != null) {
+                    val isDebugFixture = BuildConfig.DEBUG && route.startsWith("kanban-lab?scenario=")
+                    if (isDebugFixture) {
+                        navController.navigateSingleTop(route)
+                    } else if (loggedIn != null) {
                         if (requestedServerId != null && requestedServerId != loggedIn.account.id) {
                             val account = container.authRepository.servers.value.servers.firstOrNull { it.id == requestedServerId }
                             if (account != null) {
@@ -509,6 +516,41 @@ fun HermexApp(
                         },
                     )
                 }
+                if (BuildConfig.DEBUG) {
+                    composable(
+                        route = "kanban-lab?scenario={scenario}",
+                        arguments = listOf(
+                            navArgument("scenario") {
+                                type = NavType.StringType
+                                nullable = true
+                                defaultValue = null
+                            },
+                        ),
+                    ) { entry ->
+                        val scenario = entry.arguments?.getString("scenario")
+                        val server = (authState as? AuthState.LoggedIn)?.server
+                        val fixture = scenario?.takeIf(supportedKanbanLabScenarios::contains)
+                        if (fixture != null) {
+                            KanbanLabRoute(
+                                repository = remember(fixture) { KanbanLabFixtureDataSource(fixture) },
+                                viewModelKey = "kanban-lab-fixture:$fixture",
+                                onBack = { navController.popBackStack() },
+                            )
+                        } else if (server != null) {
+                            KanbanLabRoute(
+                                repository = container.kanbanRepository(server),
+                                viewModelKey = "kanban-lab:$activeServerKey",
+                                onBack = { navController.popBackStack() },
+                            )
+                        } else {
+                            LaunchedEffect(Unit) {
+                                navController.navigate("onboarding") {
+                                    popUpTo(navController.graph.id) { inclusive = true }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -649,6 +691,15 @@ internal fun Intent.hermexRoute(): String? {
             ?.let { sessionId -> "chat/${Uri.encode(sessionId)}" }
         "settings" -> "settings"
         "panels" -> uri.getQueryParameter("section")?.takeIf { it.isNotBlank() }?.let { "panels?section=${Uri.encode(it)}" } ?: "panels"
+        "kanban-lab" -> if (BuildConfig.DEBUG) {
+            uri.getQueryParameter("scenario")
+                ?.lowercase()
+                ?.takeIf(supportedKanbanLabScenarios::contains)
+                ?.let { "kanban-lab?scenario=${Uri.encode(it)}" }
+                ?: "kanban-lab"
+        } else {
+            null
+        }
         else -> null
     }
 }

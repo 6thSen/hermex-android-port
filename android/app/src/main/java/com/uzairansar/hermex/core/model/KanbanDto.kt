@@ -210,6 +210,7 @@ data class KanbanCompatibilityReport(
 
 sealed interface KanbanCompatibilityWarning {
     data object ReadOnly : KanbanCompatibilityWarning
+    data object WriteCapabilityUnavailable : KanbanCompatibilityWarning
     data class UnsupportedStatus(val status: String) : KanbanCompatibilityWarning
 }
 

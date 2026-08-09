@@ -1267,7 +1267,9 @@
     <string name="l10n_dc3decbb93847518" formatted="false">"详细信息"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"放弃"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"文件更改"</string>
+    <string name="l10n_96e578211aa29531" formatted="false">"筛选条件"</string>
     <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex ??????????????????????????????? Cookie ???????"</string>
+    <string name="l10n_7f896a7c24b031ad" formatted="false">"不兼容的 Kanban 响应"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"加载远程图片"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"名称：值"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"打开"</string>

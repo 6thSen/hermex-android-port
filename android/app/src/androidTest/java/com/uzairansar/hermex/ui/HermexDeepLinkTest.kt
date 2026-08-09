@@ -11,6 +11,25 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HermexDeepLinkTest {
     @Test
+    fun debugKanbanLabHasAnExplicitHiddenDeepLink() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab"))
+
+        assertEquals("kanban-lab", intent.hermexRoute())
+    }
+
+    @Test
+    fun debugKanbanLabAcceptsOnlyKnownFixtureScenarios() {
+        assertEquals(
+            "kanban-lab?scenario=dense",
+            Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab?scenario=dense")).hermexRoute(),
+        )
+        assertEquals(
+            "kanban-lab",
+            Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab?scenario=unknown")).hermexRoute(),
+        )
+    }
+
+    @Test
     fun iosSessionLinkRoutesToTheAndroidChatScreen() {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://session?id=session 123"))
 

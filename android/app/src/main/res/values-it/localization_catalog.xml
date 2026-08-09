@@ -1267,7 +1267,9 @@
     <string name="l10n_dc3decbb93847518" formatted="false">"Dettagli"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"Scarta"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"Modifiche ai file"</string>
+    <string name="l10n_96e578211aa29531" formatted="false">"Filtri"</string>
     <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex non ha potuto aprire i dati crittografati dell?account. Il ripristino rimuover? da questo dispositivo i server salvati, i cookie di accesso e le intestazioni personalizzate."</string>
+    <string name="l10n_7f896a7c24b031ad" formatted="false">"Risposta Kanban incompatibile"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"Carica immagine remota"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"Nome: valore"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"Apri"</string>

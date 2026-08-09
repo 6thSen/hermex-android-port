@@ -1267,7 +1267,9 @@
     <string name="l10n_dc3decbb93847518" formatted="false">"세부 정보"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"버리기"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"파일 변경 사항"</string>
+    <string name="l10n_96e578211aa29531" formatted="false">"필터"</string>
     <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex? ???? ?? ???? ? ? ????. ????? ? ??? ??? ??, ??? ?? ? ??? ?? ??? ?????."</string>
+    <string name="l10n_7f896a7c24b031ad" formatted="false">"호환되지 않는 Kanban 응답"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"원격 이미지 불러오기"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"이름: 값"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"열기"</string>

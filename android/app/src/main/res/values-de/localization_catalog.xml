@@ -1267,7 +1267,9 @@
     <string name="l10n_dc3decbb93847518" formatted="false">"Details"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"Verwerfen"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"Dateiänderungen"</string>
+    <string name="l10n_96e578211aa29531" formatted="false">"Filter"</string>
     <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex konnte die verschl?sselten Kontodaten nicht ?ffnen. Beim Zur?cksetzen werden gespeicherte Server, Anmelde-Cookies und benutzerdefinierte Header von diesem Ger?t entfernt."</string>
+    <string name="l10n_7f896a7c24b031ad" formatted="false">"Inkompatible Kanban-Antwort"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"Externes Bild laden"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"Name: Wert"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"Öffnen"</string>

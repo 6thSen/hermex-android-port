@@ -1267,7 +1267,9 @@
     <string name="l10n_dc3decbb93847518" formatted="false">"Details"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"Discard"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"File changes"</string>
+    <string name="l10n_96e578211aa29531" formatted="false">"Filters"</string>
     <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex could not open its encrypted account data. Resetting removes saved servers, sign-in cookies, and custom headers from this device."</string>
+    <string name="l10n_7f896a7c24b031ad" formatted="false">"Incompatible Kanban response"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"Load remote image"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"Name: Value"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"Open"</string>

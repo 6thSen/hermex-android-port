@@ -1267,7 +1267,9 @@
     <string name="l10n_dc3decbb93847518" formatted="false">"詳細"</string>
     <string name="l10n_36fff63ccbcd7bf9" formatted="false">"破棄"</string>
     <string name="l10n_663da9347806aa18" formatted="false">"ファイルの変更"</string>
+    <string name="l10n_96e578211aa29531" formatted="false">"フィルター"</string>
     <string name="l10n_1ce5eec83a4626a6" formatted="false">"Hermex ??????????????????????????????????????????????????????? Cookie?????????????????"</string>
+    <string name="l10n_7f896a7c24b031ad" formatted="false">"互換性のない Kanban 応答"</string>
     <string name="l10n_7a4e49bc1d9b6a0e" formatted="false">"リモート画像を読み込む"</string>
     <string name="l10n_2563f2298c5e7405" formatted="false">"名前: 値"</string>
     <string name="l10n_cf9b77061f7b3126" formatted="false">"開く"</string>

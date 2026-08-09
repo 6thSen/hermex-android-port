@@ -20,12 +20,13 @@ class KanbanCompatibilityTest {
         val server = MockWebServer()
         try {
             server.start()
-            server.enqueue(json("""{"columns":["triage","future"],"assignees":["one",{"name":"two"}]}"""))
-            server.enqueue(json("""{"current":"main","boards":[{"slug":"main","name":"Main"}]}"""))
+            server.enqueue(json("""{"columns":["triage"],"assignees":["one",{"name":"two"}],"read_only":false}"""))
+            server.enqueue(json("""{"current":"main","boards":[{"slug":"main","name":"Main","read_only":false}],"read_only":false}"""))
             server.enqueue(
                 json(
                     """
                     {
+                      "changed": true,
                       "columns": [
                         {"name":"triage","tasks":[{"id":"c1","title":"Known","status":"triage"}]},
                         {"name":"future","tasks":[{"id":"c2","title":"Future","status":"future"}]}
@@ -59,14 +60,85 @@ class KanbanCompatibilityTest {
         val server = MockWebServer()
         try {
             server.start()
-            server.enqueue(json("""{"columns":["todo"]}"""))
-            server.enqueue(json("""{"current":"main","boards":[{"slug":"main"}]}"""))
-            server.enqueue(json("""{"columns":[{"name":"todo","tasks":[{"status":"todo"}]}]}"""))
+            server.enqueue(json("""{"columns":["todo"],"read_only":false}"""))
+            server.enqueue(json("""{"current":"main","boards":[{"slug":"main","read_only":false}],"read_only":false}"""))
+            server.enqueue(json("""{"changed":true,"read_only":false,"columns":[{"name":"todo","tasks":[{"status":"todo"}]}]}"""))
             val repository = KanbanRepository(HermesApiClient(server.url("/"), OkHttpClient()))
 
             val error = runCatching { repository.compatibilityHandshake() }.exceptionOrNull()
 
             assertTrue(error is KanbanContractViolation.MissingCardIdentity)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun handshakeRejectsMinimalUnchangedSnapshotForInitialBrowse() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(json("""{"columns":["todo"],"read_only":false}"""))
+            server.enqueue(json("""{"current":"main","boards":[{"slug":"main","read_only":false}],"read_only":false}"""))
+            server.enqueue(json("""{"changed":false,"latest_event_id":42,"read_only":false}"""))
+            val repository = KanbanRepository(HermesApiClient(server.url("/"), OkHttpClient()))
+
+            val error = runCatching { repository.compatibilityHandshake() }.exceptionOrNull()
+
+            assertTrue(error is KanbanContractViolation.MissingBoardSnapshot)
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun filteredBoardLoadUsesVerifiedQueryAndRetainsUnknownStatus() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(
+                json(
+                    """{"changed":true,"read_only":false,"columns":[{"name":"future","tasks":[{"id":"c1","status":"future"}]}]}""",
+                ),
+            )
+            val repository = KanbanRepository(HermesApiClient(server.url("/"), OkHttpClient()))
+
+            val snapshot = repository.boardSnapshot(
+                board = "release",
+                filters = KanbanBrowseFilters(
+                    profile = "reviewer",
+                    tenant = "mobile",
+                    includeArchived = true,
+                    onlyMine = false,
+                ),
+            )
+
+            assertEquals("future", snapshot.columns?.single()?.cards?.single()?.status)
+            val request = server.takeRequest()
+            assertEquals("/api/kanban/board", request.url.encodedPath)
+            assertEquals("release", request.url.queryParameter("board"))
+            assertEquals("reviewer", request.url.queryParameter("assignee"))
+            assertEquals("mobile", request.url.queryParameter("tenant"))
+            assertEquals("true", request.url.queryParameter("include_archived"))
+            assertEquals(null, request.url.queryParameter("only_mine"))
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
+    fun missingReadOnlySignalsDisableWritesWithoutBlockingBrowse() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(json("""{"columns":["todo"]}"""))
+            server.enqueue(json("""{"current":"main","boards":[{"slug":"main"}]}"""))
+            server.enqueue(json("""{"changed":true,"columns":[{"name":"todo","tasks":[]}]}"""))
+            val repository = KanbanRepository(HermesApiClient(server.url("/"), OkHttpClient()))
+
+            val report = repository.compatibilityHandshake()
+
+            assertTrue(report.warnings.contains(KanbanCompatibilityWarning.WriteCapabilityUnavailable))
         } finally {
             server.close()
         }
