@@ -338,6 +338,7 @@ class HermexUiFlowTest {
                 SessionListRoute(
                     authState = AuthState.LoggedIn(mockServer.url("/"), account),
                     container = container,
+                    selectedSessionId = "s1",
                     onOpenChat = { openedChat = it },
                     onOpenVoiceChat = {},
                     onOpenSharedDraft = {},
@@ -362,6 +363,7 @@ class HermexUiFlowTest {
         composeRule.onNodeWithText("Android Port").assertIsDisplayed()
         assertTrue(hasText("3 messages", substring = true))
         composeRule.onNodeWithText("Live").assertIsDisplayed()
+        composeRule.onNodeWithTag("session_row_s1").assertIsSelected()
         assertTrue(composeRule.onAllNodesWithText("gpt-5").fetchSemanticsNodes().isEmpty())
         assertTrue(composeRule.onAllNodesWithText("pin").fetchSemanticsNodes().isEmpty())
         assertTrue(composeRule.onAllNodesWithContentDescription("Session actions").fetchSemanticsNodes().isEmpty())
@@ -634,7 +636,7 @@ class HermexUiFlowTest {
                                       {"role": "local_notice", "content": "Cached local note"},
                                       {
                                         "role": "assistant",
-                                        "content": "Mock response",
+                                        "content": "Mock response\nMEDIA:/tmp/voice.mp3\nMEDIA:/tmp/demo.mp4\nMEDIA:/tmp/report.zip",
                                         "reasoning": [
                                           {"text": "Thinking through Android parity"}
                                         ],
@@ -948,6 +950,11 @@ class HermexUiFlowTest {
         composeRule.onNodeWithContentDescription("Message").performTextInput("Hello Android")
         composeRule.onNodeWithContentDescription("Send").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Mock response") }
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("voice.mp3") && hasText("demo.mp4") && hasText("report.zip") }
+        composeRule.onNodeWithText("voice.mp3").assertIsDisplayed()
+        composeRule.onNodeWithText("demo.mp4").assertIsDisplayed()
+        composeRule.onNodeWithText("report.zip").assertIsDisplayed()
+        composeRule.onNodeWithText("Tap to download").assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Post-done title") }
 
         composeRule.onNodeWithText("Mock response").assertExists()

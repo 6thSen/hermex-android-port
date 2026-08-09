@@ -133,6 +133,7 @@ fun SessionListRoute(
     shortcutNonce: String? = null,
     shortcutProfile: String? = null,
     initialArchived: Boolean = false,
+    selectedSessionId: String? = null,
     onOpenChat: (String) -> Unit,
     onOpenVoiceChat: (String) -> Unit,
     onOpenSharedDraft: (String) -> Unit,
@@ -373,6 +374,7 @@ fun SessionListRoute(
                             isViewingCachedData = state.isViewingCachedData,
                             showsMessageCount = state.sessionRowDisplaySettings.showMessageCount,
                             showsWorkspace = state.sessionRowDisplaySettings.showWorkspace,
+                            selected = selectedSessionId != null && selectedSessionId == session.sessionId,
                             actionsExpanded = expandedActionsFor == rowKey,
                             onOpen = { session.sessionId?.let(onOpenChat) },
                             onToggleActions = {
@@ -1319,6 +1321,7 @@ private fun SessionRow(
     isViewingCachedData: Boolean,
     showsMessageCount: Boolean,
     showsWorkspace: Boolean,
+    selected: Boolean,
     actionsExpanded: Boolean,
     onOpen: () -> Unit,
     onToggleActions: () -> Unit,
@@ -1349,7 +1352,11 @@ private fun SessionRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = rowMinimumHeight)
-                    .background(hermexBackgroundColor())
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                        else hermexBackgroundColor(),
+                    )
+                    .semantics { this.selected = selected }
                     .testTag("session_row_${session.stableId}")
                     .combinedClickable(
                         onClick = onOpen,

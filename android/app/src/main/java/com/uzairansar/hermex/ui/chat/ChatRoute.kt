@@ -14,7 +14,9 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.view.HapticFeedbackConstants
+import android.widget.MediaController
 import android.widget.Toast
+import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -125,6 +127,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
@@ -150,6 +153,8 @@ import com.uzairansar.hermex.core.model.ProfileSummary
 import com.uzairansar.hermex.core.model.ToolCall
 import com.uzairansar.hermex.core.model.ToolCallGroup
 import com.uzairansar.hermex.core.model.TranscriptMediaParser
+import com.uzairansar.hermex.core.model.TranscriptMediaDataClassifier
+import com.uzairansar.hermex.core.model.TranscriptMediaKind
 import com.uzairansar.hermex.core.model.TranscriptMediaReference
 import com.uzairansar.hermex.core.model.TranscriptMediaSource
 import com.uzairansar.hermex.core.model.TranscriptMediaSegment
@@ -4077,9 +4082,29 @@ private fun TranscriptMediaThumbnailView(
     loadMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
     onPreviewMedia: (TranscriptMediaReference) -> Unit,
 ) {
-    if (!reference.isRasterImageCandidate) {
-        TranscriptMediaUnavailableChip(reference = reference)
-        return
+    when (reference.mediaKind) {
+        TranscriptMediaKind.Audio -> {
+            TranscriptMediaAudioView(
+                reference = reference,
+                loadMediaData = loadMediaImage,
+            )
+            return
+        }
+        TranscriptMediaKind.Video -> {
+            TranscriptMediaVideoTile(
+                reference = reference,
+                onPreviewMedia = onPreviewMedia,
+            )
+            return
+        }
+        TranscriptMediaKind.Unsupported -> {
+            TranscriptMediaFileDownloadView(
+                reference = reference,
+                loadMediaData = loadMediaImage,
+            )
+            return
+        }
+        TranscriptMediaKind.Image -> Unit
     }
 
     var bytes by remember(reference.id) { mutableStateOf<ByteArray?>(null) }
@@ -4097,6 +4122,9 @@ private fun TranscriptMediaThumbnailView(
         didAttemptLoad = true
     }
     val bitmap = rememberDecodedBitmap(bytes, maxDimension = 840, maxPixels = 1_000_000L)
+    val resolvedKind = remember(reference.id, bytes) {
+        bytes?.let { TranscriptMediaDataClassifier.resolvedKind(reference, it) }
+    }
 
     val shape = RoundedCornerShape(10.dp)
     when {
@@ -4136,6 +4164,27 @@ private fun TranscriptMediaThumbnailView(
                     .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape),
             )
         }
+        resolvedKind == TranscriptMediaKind.Audio && bytes != null -> {
+            TranscriptMediaAudioView(
+                reference = reference,
+                initialData = bytes,
+                remoteAlreadyApproved = true,
+                loadMediaData = loadMediaImage,
+            )
+        }
+        resolvedKind == TranscriptMediaKind.Video -> {
+            TranscriptMediaVideoTile(
+                reference = reference,
+                onPreviewMedia = onPreviewMedia,
+            )
+        }
+        resolvedKind == TranscriptMediaKind.Unsupported && bytes != null -> {
+            TranscriptMediaFileDownloadView(
+                reference = reference,
+                initialData = bytes,
+                loadMediaData = loadMediaImage,
+            )
+        }
         didAttemptLoad -> TranscriptMediaUnavailableChip(reference = reference)
         else -> {
             Box(
@@ -4150,6 +4199,184 @@ private fun TranscriptMediaThumbnailView(
             }
         }
     }
+}
+
+@Composable
+private fun TranscriptMediaAudioView(
+    reference: TranscriptMediaReference,
+    loadMediaData: suspend (TranscriptMediaReference) -> ByteArray?,
+    initialData: ByteArray? = null,
+    remoteAlreadyApproved: Boolean = false,
+) {
+    Column(
+        modifier = Modifier.widthIn(max = 300.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        InlineAudioAttachmentPlayer(
+            title = reference.displayName,
+            path = reference.rawReference,
+            loadAttachmentData = { initialData ?: loadMediaData(reference) },
+            requiresRemoteApproval = !remoteAlreadyApproved,
+        )
+        TranscriptMediaDownloadButton(
+            reference = reference,
+            initialData = initialData,
+            loadMediaData = loadMediaData,
+            modifier = Modifier.align(Alignment.End),
+        )
+    }
+}
+
+@Composable
+private fun TranscriptMediaVideoTile(
+    reference: TranscriptMediaReference,
+    onPreviewMedia: (TranscriptMediaReference) -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val accessibilityLabel = localizedStringFormat("Open media video %@", reference.displayName)
+    val playSymbol = "▶"
+    Column(
+        modifier = Modifier
+            .size(width = 210.dp, height = 132.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.78f))
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
+            .clickable { onPreviewMedia(reference) }
+            .semantics { contentDescription = accessibilityLabel }
+            .padding(horizontal = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            playSymbol,
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(7.dp))
+        Text(
+            reference.displayName,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.MiddleEllipsis,
+        )
+        Text(
+            localizedString("Video"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TranscriptMediaFileDownloadView(
+    reference: TranscriptMediaReference,
+    loadMediaData: suspend (TranscriptMediaReference) -> ByteArray?,
+    initialData: ByteArray? = null,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        modifier = Modifier
+            .widthIn(max = 300.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            reference.fileExtension?.uppercase(Locale.ROOT)?.take(5) ?: "FILE",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.secondary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                reference.displayName,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis,
+            )
+            Text(
+                localizedString("Tap to download"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TranscriptMediaDownloadButton(
+            reference = reference,
+            initialData = initialData,
+            loadMediaData = loadMediaData,
+        )
+    }
+}
+
+@Composable
+private fun TranscriptMediaDownloadButton(
+    reference: TranscriptMediaReference,
+    loadMediaData: suspend (TranscriptMediaReference) -> ByteArray?,
+    initialData: ByteArray? = null,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var cachedData by remember(reference.id, initialData) { mutableStateOf(initialData) }
+    var pendingData by remember(reference.id) { mutableStateOf<ByteArray?>(null) }
+    var isLoading by remember(reference.id) { mutableStateOf(false) }
+    val resolvedKind = cachedData?.let { TranscriptMediaDataClassifier.resolvedKind(reference, it) }
+        ?: reference.mediaKind
+    val mimeType = when (resolvedKind) {
+        TranscriptMediaKind.Image -> "image/*"
+        TranscriptMediaKind.Audio -> "audio/*"
+        TranscriptMediaKind.Video -> "video/*"
+        TranscriptMediaKind.Unsupported -> "application/octet-stream"
+    }
+    val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(mimeType)) { uri ->
+        val data = pendingData
+        pendingData = null
+        if (uri != null && data != null) {
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri, "w").use { output ->
+                            requireNotNull(output) { "Could not open the selected file." }
+                            output.write(data)
+                        }
+                    }.isSuccess
+                }
+                Toast.makeText(
+                    context,
+                    context.localizedString(if (saved) "Download complete" else "Download Failed"),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+    val downloadLabel = localizedString("Download")
+    HermexIconButton(
+        label = downloadLabel,
+        symbol = if (isLoading) "…" else "↓",
+        enabled = !isLoading,
+        onClick = {
+            scope.launch {
+                isLoading = true
+                val data = cachedData ?: loadMediaData(reference)
+                isLoading = false
+                if (data == null || data.isEmpty()) {
+                    Toast.makeText(context, context.localizedString("Could not load media."), Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                cachedData = data
+                pendingData = data
+                val extension = TranscriptMediaDataClassifier.suggestedExtension(reference, data)
+                createDocument.launch(reference.exportFilename(extension))
+            }
+        },
+        modifier = modifier.size(38.dp),
+    )
 }
 
 @Composable
@@ -4205,22 +4432,45 @@ private fun TranscriptMediaPreviewSheet(
     var didAttemptLoad by remember(reference.id) { mutableStateOf(false) }
     var isSaving by remember(reference.id) { mutableStateOf(false) }
     var saveMessage by remember(reference.id) { mutableStateOf<String?>(null) }
+    var videoFile by remember(reference.id) { mutableStateOf<File?>(null) }
     LaunchedEffect(reference.id) {
         didAttemptLoad = false
         bytes = loadMediaImage(reference)
         didAttemptLoad = true
     }
     val bitmap = rememberDecodedBitmap(bytes, maxDimension = 4_096, maxPixels = 8_000_000L)
-    val saveImage: () -> Unit = {
-        val imageBytes = bytes
-        if (imageBytes == null) {
-            saveMessage = "Could not save image."
+    val resolvedKind = remember(reference.id, bytes, bitmap) {
+        bytes?.let { data ->
+            if (bitmap != null) TranscriptMediaKind.Image else TranscriptMediaDataClassifier.resolvedKind(reference, data)
+        } ?: reference.mediaKind
+    }
+    LaunchedEffect(reference.id, bytes, resolvedKind) {
+        videoFile?.delete()
+        videoFile = null
+        val videoBytes = bytes?.takeIf { resolvedKind == TranscriptMediaKind.Video } ?: return@LaunchedEffect
+        videoFile = withContext(Dispatchers.IO) {
+            val extension = TranscriptMediaDataClassifier.suggestedExtension(reference, videoBytes)
+            File.createTempFile("hermex-transcript-video-", ".$extension", context.cacheDir).also { it.writeBytes(videoBytes) }
+        }
+    }
+    val latestVideoFile by rememberUpdatedState(videoFile)
+    DisposableEffect(reference.id) {
+        onDispose { latestVideoFile?.delete() }
+    }
+    val saveMedia: () -> Unit = {
+        val mediaBytes = bytes
+        if (mediaBytes == null) {
+            saveMessage = "Could not save media."
         } else {
             scope.launch {
                 isSaving = true
                 try {
                     saveMessage = withContext(Dispatchers.IO) {
-                        saveTranscriptMediaImageToGallery(context, reference, imageBytes)
+                        when (resolvedKind) {
+                            TranscriptMediaKind.Image -> saveTranscriptMediaImageToGallery(context, reference, mediaBytes)
+                            TranscriptMediaKind.Video -> saveTranscriptMediaVideoToGallery(context, reference, mediaBytes)
+                            else -> "This media type cannot be saved to Photos."
+                        }
                     }
                 } finally {
                     isSaving = false
@@ -4229,7 +4479,7 @@ private fun TranscriptMediaPreviewSheet(
         }
     }
     val legacyStoragePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) saveImage() else saveMessage = "Photos permission is required to save this image."
+        if (granted) saveMedia() else saveMessage = "Photos permission is required to save this media."
     }
 
     PickerSheet(
@@ -4255,30 +4505,47 @@ private fun TranscriptMediaPreviewSheet(
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        HermexPillButton(
-                            label = if (isSaving) "Saving" else "Save",
-                            onClick = {
-                                if (
-                                    Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-                                    ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                    ) != PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                                } else {
-                                    saveImage()
-                                }
-                            },
-                            enabled = !isSaving,
-                            filled = true,
-                        )
-                    }
                 }
+                resolvedKind == TranscriptMediaKind.Audio && bytes != null -> TranscriptMediaAudioView(
+                    reference = reference,
+                    initialData = bytes,
+                    remoteAlreadyApproved = true,
+                    loadMediaData = loadMediaImage,
+                )
+                resolvedKind == TranscriptMediaKind.Video && videoFile != null -> AndroidView(
+                    factory = { viewContext ->
+                        VideoView(viewContext).apply {
+                            val controller = MediaController(viewContext)
+                            controller.setAnchorView(this)
+                            setMediaController(controller)
+                        }
+                    },
+                    update = { videoView ->
+                        val path = videoFile?.absolutePath ?: return@AndroidView
+                        if (videoView.tag != path) {
+                            videoView.tag = path
+                            videoView.setVideoPath(path)
+                            videoView.setOnPreparedListener { player ->
+                                player.isLooping = false
+                                videoView.seekTo(1)
+                            }
+                        }
+                    },
+                    onRelease = { videoView ->
+                        videoView.stopPlayback()
+                        videoView.setMediaController(null)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(360.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black),
+                )
+                resolvedKind == TranscriptMediaKind.Unsupported && bytes != null -> TranscriptMediaFileDownloadView(
+                    reference = reference,
+                    initialData = bytes,
+                    loadMediaData = loadMediaImage,
+                )
                 didAttemptLoad -> TranscriptMediaUnavailableChip(reference = reference)
                 else -> {
                     Box(
@@ -4289,6 +4556,37 @@ private fun TranscriptMediaPreviewSheet(
                     ) {
                         CircularProgressIndicator(strokeWidth = 2.dp)
                     }
+                }
+            }
+            if (bytes != null && (resolvedKind == TranscriptMediaKind.Image || resolvedKind == TranscriptMediaKind.Video)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TranscriptMediaDownloadButton(
+                        reference = reference,
+                        initialData = bytes,
+                        loadMediaData = loadMediaImage,
+                    )
+                    HermexPillButton(
+                        label = localizedString(if (isSaving) "Saving" else "Save"),
+                        onClick = {
+                            if (
+                                Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else {
+                                saveMedia()
+                            }
+                        },
+                        enabled = !isSaving,
+                        filled = true,
+                    )
                 }
             }
             saveMessage?.let { message ->
@@ -4309,7 +4607,7 @@ private fun saveTranscriptMediaImageToGallery(
     bytes: ByteArray,
 ): String = runCatching {
     val resolver = context.contentResolver
-    val fileName = reference.galleryFilename()
+    val fileName = reference.exportFilename(TranscriptMediaDataClassifier.suggestedExtension(reference, bytes))
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
         put(MediaStore.MediaColumns.MIME_TYPE, fileName.galleryMimeType())
@@ -4338,14 +4636,49 @@ private fun saveTranscriptMediaImageToGallery(
     "Could not save image: ${error.localizedMessage ?: "Unknown error."}"
 }
 
-private fun TranscriptMediaReference.galleryFilename(): String {
+private fun saveTranscriptMediaVideoToGallery(
+    context: Context,
+    reference: TranscriptMediaReference,
+    bytes: ByteArray,
+): String = runCatching {
+    val resolver = context.contentResolver
+    val extension = TranscriptMediaDataClassifier.suggestedExtension(reference, bytes)
+    val fileName = reference.exportFilename(extension)
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+        put(MediaStore.MediaColumns.MIME_TYPE, when (extension) {
+            "mov" -> "video/quicktime"
+            "m4v" -> "video/x-m4v"
+            else -> "video/mp4"
+        })
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/Hermex")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+    }
+    val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+        ?: error("Gallery did not create a video entry.")
+    try {
+        resolver.openOutputStream(uri)?.use { output -> output.write(bytes) }
+            ?: error("Could not open gallery item.")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        }
+        "Video saved to gallery."
+    } catch (error: Throwable) {
+        runCatching { resolver.delete(uri, null, null) }
+        throw error
+    }
+}.getOrElse { error ->
+    "Could not save video: ${error.localizedMessage ?: "Unknown error."}"
+}
+
+private fun TranscriptMediaReference.exportFilename(extension: String): String {
     val rawName = displayName.trim().takeIf { it.isNotBlank() } ?: "hermex-media"
-    val extension = rawName.substringAfterLast('.', missingDelimiterValue = "")
-        .lowercase(Locale.US)
-        .takeIf { it in galleryImageExtensions }
-        ?: "png"
+    if (rawName.substringAfterLast('.', missingDelimiterValue = "").isNotBlank()) return rawName
     val stem = rawName
-        .substringBeforeLast('.', missingDelimiterValue = rawName)
         .replace(Regex("[^A-Za-z0-9._-]+"), "_")
         .trim('.', '_', '-')
         .take(80)
@@ -4365,8 +4698,6 @@ private fun String.galleryMimeType(): String =
         "webp" -> "image/webp"
         else -> "image/png"
     }
-
-private val galleryImageExtensions = setOf("bmp", "gif", "heic", "heif", "jpg", "jpeg", "png", "tif", "tiff", "webp")
 
 @Composable
 private fun TranscriptLinkPreviewCard(
@@ -5493,6 +5824,7 @@ private fun InlineAudioAttachmentPlayer(
     title: String,
     path: String?,
     loadAttachmentData: suspend (String) -> ByteArray?,
+    requiresRemoteApproval: Boolean = true,
 ) {
     val context = LocalContext.current
     var phase by remember(path) { mutableStateOf(AudioAttachmentPhase.Loading) }
@@ -5505,7 +5837,7 @@ private fun InlineAudioAttachmentPlayer(
     val remoteUrl = remember(path) {
         path?.let { (TranscriptMediaReference(it).source as? TranscriptMediaSource.RemoteUrl)?.url }
     }
-    val isRemote = remoteUrl != null
+    val isRemote = requiresRemoteApproval && remoteUrl != null
     val remoteLoadBlocked = remoteUrl?.scheme != null && remoteUrl.scheme != "https"
 
     LaunchedEffect(path, remoteLoadApproved) {

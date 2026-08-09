@@ -8,6 +8,13 @@ sealed interface TranscriptMediaSource {
     data class RemoteUrl(val url: HttpUrl) : TranscriptMediaSource
 }
 
+enum class TranscriptMediaKind {
+    Image,
+    Audio,
+    Video,
+    Unsupported,
+}
+
 data class TranscriptMediaReference(
     val rawReference: String,
 ) {
@@ -39,11 +46,28 @@ data class TranscriptMediaReference(
         }
 
     val isRasterImageCandidate: Boolean
-        get() {
-            val ext = pathExtension
-            if (ext in rasterImageExtensions) return true
-            return source is TranscriptMediaSource.RemoteUrl && ext.isEmpty()
+        get() = mediaKind == TranscriptMediaKind.Image
+
+    val isAudioCandidate: Boolean
+        get() = mediaKind == TranscriptMediaKind.Audio
+
+    val isVideoCandidate: Boolean
+        get() = mediaKind == TranscriptMediaKind.Video
+
+    val isExtensionlessRemoteMediaCandidate: Boolean
+        get() = source is TranscriptMediaSource.RemoteUrl && pathExtension.isEmpty()
+
+    val mediaKind: TranscriptMediaKind
+        get() = when {
+            pathExtension in rasterImageExtensions -> TranscriptMediaKind.Image
+            pathExtension in audioExtensions -> TranscriptMediaKind.Audio
+            pathExtension in videoExtensions -> TranscriptMediaKind.Video
+            isExtensionlessRemoteMediaCandidate -> TranscriptMediaKind.Image
+            else -> TranscriptMediaKind.Unsupported
         }
+
+    val fileExtension: String?
+        get() = pathExtension.takeIf { it.isNotEmpty() }
 
     private val pathExtension: String
         get() {
@@ -72,7 +96,68 @@ data class TranscriptMediaReference(
             "tiff",
             "webp",
         )
+        private val audioExtensions = setOf("aac", "caf", "m4a", "mp3", "wav")
+        private val videoExtensions = setOf("m4v", "mov", "mp4")
     }
+}
+
+object TranscriptMediaDataClassifier {
+    fun resolvedKind(reference: TranscriptMediaReference, data: ByteArray): TranscriptMediaKind {
+        val declared = reference.mediaKind
+        if (!reference.isExtensionlessRemoteMediaCandidate && declared != TranscriptMediaKind.Unsupported) {
+            return declared
+        }
+        return when {
+            data.hasPngSignature() || data.hasJpegSignature() || data.hasGifSignature() || data.hasWebpSignature() ->
+                TranscriptMediaKind.Image
+            data.hasWaveSignature() || data.hasMp3Signature() || data.hasCafSignature() || data.hasAacSignature() ->
+                TranscriptMediaKind.Audio
+            data.hasIsoBaseMediaSignature() -> TranscriptMediaKind.Video
+            declared == TranscriptMediaKind.Unsupported -> TranscriptMediaKind.Unsupported
+            else -> TranscriptMediaKind.Video
+        }
+    }
+
+    fun suggestedExtension(reference: TranscriptMediaReference, data: ByteArray): String =
+        reference.fileExtension ?: when (resolvedKind(reference, data)) {
+            TranscriptMediaKind.Image -> when {
+                data.hasJpegSignature() -> "jpg"
+                data.hasGifSignature() -> "gif"
+                data.hasWebpSignature() -> "webp"
+                else -> "png"
+            }
+            TranscriptMediaKind.Audio -> when {
+                data.hasWaveSignature() -> "wav"
+                data.hasCafSignature() -> "caf"
+                data.hasAacSignature() -> "aac"
+                else -> "mp3"
+            }
+            TranscriptMediaKind.Video -> "mp4"
+            TranscriptMediaKind.Unsupported -> "bin"
+        }
+
+    private fun ByteArray.hasPngSignature(): Boolean = startsWith(0x89, 0x50, 0x4E, 0x47)
+    private fun ByteArray.hasJpegSignature(): Boolean = startsWith(0xFF, 0xD8, 0xFF)
+    private fun ByteArray.hasGifSignature(): Boolean = startsWithAscii("GIF8")
+    private fun ByteArray.hasWebpSignature(): Boolean = startsWithAscii("RIFF") && asciiAt(8, "WEBP")
+    private fun ByteArray.hasWaveSignature(): Boolean = startsWithAscii("RIFF") && asciiAt(8, "WAVE")
+    private fun ByteArray.hasMp3Signature(): Boolean = startsWithAscii("ID3") ||
+        (size >= 2 && this[0].unsigned == 0xFF && (this[1].unsigned and 0xE0) == 0xE0)
+    private fun ByteArray.hasCafSignature(): Boolean = startsWithAscii("caff")
+    private fun ByteArray.hasAacSignature(): Boolean =
+        size >= 2 && this[0].unsigned == 0xFF && (this[1].unsigned and 0xF6) == 0xF0
+    private fun ByteArray.hasIsoBaseMediaSignature(): Boolean = asciiAt(4, "ftyp")
+
+    private fun ByteArray.startsWith(vararg bytes: Int): Boolean =
+        size >= bytes.size && bytes.indices.all { index -> this[index].unsigned == bytes[index] }
+
+    private fun ByteArray.startsWithAscii(value: String): Boolean = asciiAt(0, value)
+
+    private fun ByteArray.asciiAt(offset: Int, value: String): Boolean =
+        size >= offset + value.length && value.indices.all { index -> this[offset + index].toInt().toChar() == value[index] }
+
+    private val Byte.unsigned: Int
+        get() = toInt() and 0xFF
 }
 
 sealed interface TranscriptMediaSegment {
@@ -132,7 +217,7 @@ object TranscriptMediaParser {
 
         while (cursor < line.length) {
             if (line.startsWith("MEDIA:", cursor)) {
-                val range = referenceRange(line, cursor + 6)
+                val range = referenceRange(line, markerStart = cursor, start = cursor + 6)
                 if (range != null) {
                     appendText(line.substring(textStart, cursor), segments)
                     segments += TranscriptMediaSegment.Media(
@@ -159,7 +244,7 @@ object TranscriptMediaParser {
         }
     }
 
-    private fun referenceRange(line: String, start: Int): IntRangeBounds? {
+    private fun referenceRange(line: String, markerStart: Int, start: Int): IntRangeBounds? {
         if (start >= line.length) return null
         var end = start
         while (end < line.length && !isReferenceTerminator(line[end])) {
@@ -170,9 +255,23 @@ object TranscriptMediaParser {
         while (trimmedEnd > start && line[trimmedEnd - 1] in trailingPunctuation) {
             trimmedEnd -= 1
         }
+        emphasisDelimiter(line, markerStart)?.let { delimiter ->
+            if (
+                trimmedEnd - delimiter.length >= start &&
+                line.regionMatches(trimmedEnd - delimiter.length, delimiter, 0, delimiter.length)
+            ) {
+                trimmedEnd -= delimiter.length
+            }
+        }
 
         return if (trimmedEnd > start) IntRangeBounds(start, trimmedEnd) else null
     }
+
+    private fun emphasisDelimiter(line: String, markerStart: Int): String? =
+        emphasisDelimiters.firstOrNull { delimiter ->
+            markerStart >= delimiter.length &&
+                line.regionMatches(markerStart - delimiter.length, delimiter, 0, delimiter.length)
+        }
 
     private fun isReferenceTerminator(character: Char): Boolean =
         character.isWhitespace() || character == ')' || character == ']'
@@ -197,6 +296,7 @@ object TranscriptMediaParser {
     private data class IntRangeBounds(val first: Int, val last: Int)
 
     private val trailingPunctuation = setOf('.', ',', ';', ':', '!', '?')
+    private val emphasisDelimiters = listOf("***", "___", "**", "__", "*", "_")
 }
 
 private fun String.lastPathComponent(): String =

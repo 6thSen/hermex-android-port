@@ -1,1 +1,1 @@
-Adds assistant response playback with seeking, four speed choices, and Android system media controls; camera photo attachments; and copyable session deeplinks.
+Adds playable and downloadable transcript audio, native video previews and gallery saving, arbitrary MEDIA file downloads, extensionless media detection, and a persistent two-pane session/chat layout on large screens.
