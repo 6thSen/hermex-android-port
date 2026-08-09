@@ -240,6 +240,12 @@ fun SessionListRoute(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("Hermex session title", session.displayTitle))
     }
+    val copySessionDeepLink: (SessionSummary) -> Unit = { session ->
+        ShortcutDestination.sessionUri(session.sessionId)?.let { deepLink ->
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Hermex session deeplink", deepLink))
+        }
+    }
 
     LaunchedEffect(shortcutKey, shortcutAction, shortcutProfile, shortcutConsumed) {
         if (!shortcutConsumed && shortcutAction == ShortcutDestination.ShareAction) {
@@ -375,6 +381,7 @@ fun SessionListRoute(
                             onPin = { viewModel.togglePin(session) },
                             onArchive = { viewModel.toggleArchive(session) },
                             onCopyTitle = { copySessionTitle(session) },
+                            onCopyDeepLink = { copySessionDeepLink(session) },
                             onRename = { viewModel.requestRename(session) },
                             onDelete = { viewModel.requestDelete(session) },
                             onBranch = { viewModel.requestBranch(session) },
@@ -1318,6 +1325,7 @@ private fun SessionRow(
     onPin: () -> Unit,
     onArchive: () -> Unit,
     onCopyTitle: () -> Unit,
+    onCopyDeepLink: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onBranch: () -> Unit,
@@ -1418,6 +1426,11 @@ private fun SessionRow(
                 if (session.isActiveStreaming) MiniBadge("Streaming", tint = MaterialTheme.colorScheme.primary)
                 if (session.isSessionReadOnly) MiniBadge("Read-only", tint = MaterialTheme.colorScheme.secondary)
                 HermexPillButton(localizedString("Copy Full Title"), onCopyTitle, enabled = true)
+                HermexPillButton(
+                    localizedString("Copy Deeplink"),
+                    onCopyDeepLink,
+                    enabled = !isMutating && !isViewingCachedData && session.sessionId != null,
+                )
                 HermexPillButton(localizedString(if (session.pinned == true) "Unpin" else "Pin"), onPin, enabled = mutationActionsEnabled)
                 HermexPillButton(localizedString(if (session.archived == true) "Restore" else "Archive"), onArchive, enabled = mutationActionsEnabled)
                 HermexPillButton(localizedString("Rename"), onRename, enabled = mutationActionsEnabled)

@@ -367,6 +367,7 @@ class HermexUiFlowTest {
         assertTrue(composeRule.onAllNodesWithContentDescription("Session actions").fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithTag("session_row_s1").performTouchInput { longClick() }
         composeRule.onNodeWithText("Duplicate").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Copy Deeplink").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Export HTML").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Export JSON").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Duplicate").performScrollTo()
@@ -880,6 +881,7 @@ class HermexUiFlowTest {
         composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Attach File") }
         composeRule.onNodeWithText("Attach File").assertIsDisplayed()
         composeRule.onNodeWithText("Photos").assertIsDisplayed()
+        composeRule.onNodeWithText("Camera").assertIsDisplayed()
         composeRule.onNodeWithText("Done").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { !hasText("Attach File") }
         composeRule.onNodeWithText("Hermex").performClick()

@@ -1,1 +1,1 @@
-Adds independent CLI, Claude Code, cron, and subagent session filters; customizable main-page and chat controls; provider status details; response-speed display; server/on-device dictation choices; and reasoning display commands.
+Adds assistant response playback with seeking, four speed choices, and Android system media controls; camera photo attachments; and copyable session deeplinks.

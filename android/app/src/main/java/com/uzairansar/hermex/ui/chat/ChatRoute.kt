@@ -13,7 +13,6 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.speech.tts.TextToSpeech
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -127,6 +126,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -332,20 +332,12 @@ fun ChatRoute(
     val dictationRecorder = remember(context) { VoiceNoteRecorder(context) }
     val dictationController = remember(context) { VoiceDictationController(context) }
     val streamNotifier = remember(context) { StreamStatusNotifier(context.applicationContext) }
-    val ttsState = remember { mutableStateOf<TextToSpeech?>(null) }
-    val isTtsReady = remember { mutableStateOf(false) }
-    val serverSpeechPlayer = remember { mutableStateOf<MediaPlayer?>(null) }
-    val serverSpeechFile = remember { mutableStateOf<File?>(null) }
+    val listenPlaybackController = remember(context) { ListenPlaybackController(context) }
+    val listenPlaybackState by listenPlaybackController.state.collectAsStateWithLifecycle()
     var speechJob by remember { mutableStateOf<Job?>(null) }
     var dictationJob by remember { mutableStateOf<Job?>(null) }
     val speechScope = rememberCoroutineScope()
     val modelPickerScope = rememberCoroutineScope()
-    val releaseServerSpeech: () -> Unit = {
-        serverSpeechPlayer.value?.release()
-        serverSpeechPlayer.value = null
-        serverSpeechFile.value?.delete()
-        serverSpeechFile.value = null
-    }
 
     LaunchedEffect(state.openSessionId) {
         val openSessionId = state.openSessionId ?: return@LaunchedEffect
@@ -354,14 +346,6 @@ fun ChatRoute(
     }
 
     DisposableEffect(context) {
-        var tts: TextToSpeech? = null
-        tts = TextToSpeech(context) { status ->
-            if (ttsState.value === tts) {
-                isTtsReady.value = status == TextToSpeech.SUCCESS
-                if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault()
-            }
-        }
-        ttsState.value = tts
         onDispose {
             speechJob?.cancel()
             speechJob = null
@@ -370,11 +354,7 @@ fun ChatRoute(
             if (recorder.isRecording) viewModel.cancelVoiceNote(recorder)
             dictationRecorder.stop(delete = true)
             dictationController.cancel()
-            releaseServerSpeech()
-            tts.stop()
-            tts.shutdown()
-            ttsState.value = null
-            isTtsReady.value = false
+            listenPlaybackController.close()
         }
     }
 
@@ -391,6 +371,37 @@ fun ChatRoute(
             Toast.makeText(context, "Attach up to ${SharedDraftPolicy.MAXIMUM_SHARED_ATTACHMENT_COUNT} photos per message.", Toast.LENGTH_LONG).show()
         }
         uris.take(availableSlots).forEach { uri -> viewModel.attach(context, uri) }
+    }
+    var pendingCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraPicker = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
+        val file = pendingCameraPath?.let(::File)
+        pendingCameraPath = null
+        if (captured && file?.isFile == true && file.length() > 0) {
+            viewModel.attachCapturedPhoto(file)
+        } else {
+            file?.delete()
+        }
+    }
+    val capturePhoto: () -> Unit = {
+        if (viewModel.remainingAttachmentSlots() <= 0) {
+            Toast.makeText(
+                context,
+                "Attach up to ${SharedDraftPolicy.MAXIMUM_SHARED_ATTACHMENT_COUNT} files per message.",
+                Toast.LENGTH_LONG,
+            ).show()
+        } else {
+            runCatching {
+                val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+                val file = File.createTempFile("hermex-camera-", ".jpg", directory)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                pendingCameraPath = file.absolutePath
+                cameraPicker.launch(uri)
+            }.onFailure { error ->
+                pendingCameraPath?.let(::File)?.delete()
+                pendingCameraPath = null
+                Toast.makeText(context, error.message ?: "Could not open the camera.", Toast.LENGTH_LONG).show()
+            }
+        }
     }
     var pendingVoicePermissionAction by rememberSaveable { mutableStateOf<VoicePermissionAction?>(null) }
     var isVoiceDictating by remember { mutableStateOf(false) }
@@ -609,59 +620,42 @@ fun ChatRoute(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("Hermex message", text))
     }
-    val speakLocally: (String) -> Unit = { text ->
-        if (isTtsReady.value) {
-            ttsState.value?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hermex-message")
+    val listenText: (MessageActionContext?, String) -> Unit = { actionContext, fallbackText ->
+        val text = actionContext?.listenText ?: fallbackText
+        val messageId = actionContext?.messageId ?: "assistant-${text.hashCode()}"
+        speechJob?.cancel()
+        if (listenPlaybackState.activeMessageId == messageId) {
+            listenPlaybackController.stop()
+        } else {
+            val requestGeneration = listenPlaybackController.beginLoading(messageId)
+            speechJob = speechScope.launch {
+                val audio = if (ServerTtsPolicy.shouldUseServer(text)) {
+                    viewModel.synthesizeSpeech(text)
+                } else {
+                    null
+                }
+                if (!isActive || !listenPlaybackController.isCurrent(requestGeneration, messageId)) {
+                    return@launch
+                }
+                val played = audio?.takeIf { it.isNotEmpty() }?.let { bytes ->
+                    listenPlaybackController.startServerAudio(
+                        requestGeneration = requestGeneration,
+                        messageId = messageId,
+                        title = "Hermex response",
+                        audio = bytes,
+                    )
+                } == true
+                if (!played && isActive) {
+                    listenPlaybackController.startOnDevice(requestGeneration, messageId, text)
+                }
+            }
         }
     }
-    val listenText: (String) -> Unit = { text ->
-        speechJob?.cancel()
-        releaseServerSpeech()
-        ttsState.value?.stop()
-        speechJob = speechScope.launch {
-            val audio = viewModel.synthesizeSpeech(text)
-            if (!isActive) return@launch
-            if (audio == null || audio.isEmpty()) {
-                speakLocally(text)
-                return@launch
-            }
-            val prepared = runCatching {
-                withContext(Dispatchers.IO) {
-                    val audioFile = File.createTempFile("hermex-tts-", ".mp3", context.cacheDir).also { it.writeBytes(audio) }
-                    val player = MediaPlayer()
-                    try {
-                        player.setDataSource(audioFile.absolutePath)
-                        player.prepare()
-                        player to audioFile
-                    } catch (error: Throwable) {
-                        player.release()
-                        audioFile.delete()
-                        throw error
-                    }
-                }
-            }.getOrNull()
-            if (!isActive) {
-                prepared?.first?.release()
-                prepared?.second?.delete()
-                return@launch
-            }
-            val played = prepared?.let { (player, audioFile) ->
-                releaseServerSpeech()
-                serverSpeechPlayer.value = player
-                serverSpeechFile.value = audioFile
-                player.setOnCompletionListener { releaseServerSpeech() }
-                player.setOnErrorListener { _, _, _ ->
-                    releaseServerSpeech()
-                    true
-                }
-                player.start()
-                true
-            } == true
-            if (!played) {
-                releaseServerSpeech()
-                speakLocally(text)
-            }
-            speechJob = null
+
+    LaunchedEffect(listenPlaybackState.phase) {
+        while (listenPlaybackState.phase == ListenPlaybackPhase.Playing && listenPlaybackState.hasSeekableAudio) {
+            delay(200)
+            listenPlaybackController.refreshProgress()
         }
     }
     val transcriptMessagesAfter: (MessageActionContext) -> Int = remember(
@@ -865,12 +859,13 @@ fun ChatRoute(
                                     loadTranscriptMediaImage = viewModel::transcriptMediaThumbnailData,
                                     loadAttachmentFile = viewModel::attachmentTextFile,
                                     actionContext = actionContext,
+                                    isListening = listenPlaybackState.activeMessageId == actionContext?.messageId,
                                     messageActionEnabled = !state.isViewingCachedData && !state.isStreaming && !state.isRunningSessionAction,
                                     isRegeneratingMessage = state.isRegeneratingMessage,
                                     isEditingMessage = state.isEditingMessage,
                                     isForkingMessage = state.isForkingMessage,
                                     onCopy = { copyText(actionContext?.copyText ?: visibleText) },
-                                    onListen = { listenText(actionContext?.listenText ?: visibleText) },
+                                    onListen = { listenText(actionContext, visibleText) },
                                     onSelectText = { selectedTextContext = it },
                                     onEdit = {
                                         editMessageDraft = it.copyText
@@ -964,32 +959,47 @@ fun ChatRoute(
                     .onSizeChanged { composerHeightPx = it.height },
             ) {
                 CompositionLocalProvider(LocalLayoutDirection provides chatLayoutDirection) {
-                    ComposerSurface(
-                        state = state,
-                        isVoiceDictating = isVoiceDictating,
-                        isVoiceDictationTranscribing = isVoiceDictationTranscribing,
-                        voiceDictationError = voiceDictationError,
-                        streamingSendBehavior = streamingSendBehavior,
-                        primaryActionTintColor = primaryActionTintColor,
-                        showSecondaryBar = isTranscriptAtBottom,
-                        onDraftChange = viewModel::updateDraft,
-                        onSend = viewModel::send,
-                        onStreamingSend = { viewModel.submitStreamingDraft(streamingSendBehavior) },
-                        onCancel = viewModel::cancel,
-                        onOpenModelPicker = { showsModelPicker = true },
-                        onOpenProfilePicker = { showsProfilePicker = true },
-                        onOpenReasoningPicker = { showsReasoningPicker = true },
-                        onOpenWorkspacePicker = { showsWorkspacePicker = true },
-                        onLoadWorkspaceSuggestions = viewModel::loadWorkspaceSuggestions,
-                        onAttach = { showsAttachmentOptions = true },
-                        onVoiceDictation = requestVoiceDictation,
-                        onVoiceNote = requestVoiceNote,
-                        onStopVoiceNote = { viewModel.stopAndSendVoiceNote(recorder) },
-                        onCancelVoice = { viewModel.cancelVoiceNote(recorder) },
-                        onRemoveAttachment = viewModel::removeAttachment,
-                        loadAttachmentImage = viewModel::attachmentImageData,
-                        loadAttachmentFile = viewModel::attachmentTextFile,
-                    )
+                    Column {
+                        if (listenPlaybackState.showsPlaybackBar) {
+                            ListenPlaybackBar(
+                                state = listenPlaybackState,
+                                onTogglePlayPause = listenPlaybackController::togglePlayPause,
+                                onSeek = listenPlaybackController::seekTo,
+                                onSpeedChange = listenPlaybackController::setSpeed,
+                                onStop = {
+                                    speechJob?.cancel()
+                                    speechJob = null
+                                    listenPlaybackController.stop()
+                                },
+                            )
+                        }
+                        ComposerSurface(
+                            state = state,
+                            isVoiceDictating = isVoiceDictating,
+                            isVoiceDictationTranscribing = isVoiceDictationTranscribing,
+                            voiceDictationError = voiceDictationError,
+                            streamingSendBehavior = streamingSendBehavior,
+                            primaryActionTintColor = primaryActionTintColor,
+                            showSecondaryBar = isTranscriptAtBottom,
+                            onDraftChange = viewModel::updateDraft,
+                            onSend = viewModel::send,
+                            onStreamingSend = { viewModel.submitStreamingDraft(streamingSendBehavior) },
+                            onCancel = viewModel::cancel,
+                            onOpenModelPicker = { showsModelPicker = true },
+                            onOpenProfilePicker = { showsProfilePicker = true },
+                            onOpenReasoningPicker = { showsReasoningPicker = true },
+                            onOpenWorkspacePicker = { showsWorkspacePicker = true },
+                            onLoadWorkspaceSuggestions = viewModel::loadWorkspaceSuggestions,
+                            onAttach = { showsAttachmentOptions = true },
+                            onVoiceDictation = requestVoiceDictation,
+                            onVoiceNote = requestVoiceNote,
+                            onStopVoiceNote = { viewModel.stopAndSendVoiceNote(recorder) },
+                            onCancelVoice = { viewModel.cancelVoiceNote(recorder) },
+                            onRemoveAttachment = viewModel::removeAttachment,
+                            loadAttachmentImage = viewModel::attachmentImageData,
+                            loadAttachmentFile = viewModel::attachmentTextFile,
+                        )
+                    }
                 }
             }
             if (!isTranscriptAtBottom) {
@@ -1195,6 +1205,10 @@ fun ChatRoute(
             onPhotos = {
                 showsAttachmentOptions = false
                 photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onCamera = {
+                showsAttachmentOptions = false
+                capturePhoto()
             },
         )
     }
@@ -2528,15 +2542,111 @@ private fun ContextWindowInfoRow(
 }
 
 @Composable
+private fun ListenPlaybackBar(
+    state: ListenPlaybackUiState,
+    onTogglePlayPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onSpeedChange: (ListenPlaybackSpeed) -> Unit,
+    onStop: () -> Unit,
+) {
+    var showsSpeedMenu by remember { mutableStateOf(false) }
+    val playbackPositionDescription = localizedString("Listen")
+    val maximumPosition = state.durationMillis.coerceAtLeast(1).toFloat()
+    val currentPosition = state.elapsedMillis.coerceIn(0, state.durationMillis.coerceAtLeast(0)).toFloat()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+            .testTag("listen_playback_bar"),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (state.phase == ListenPlaybackPhase.Loading) {
+                Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            } else {
+                HermexIconButton(
+                    label = localizedString(if (state.isPlaying) "Pause" else "Listen"),
+                    symbol = if (state.isPlaying) "Ⅱ" else "▶",
+                    onClick = onTogglePlayPause,
+                    enabled = state.isReady,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Slider(
+                    value = currentPosition.coerceIn(0f, maximumPosition),
+                    onValueChange = { onSeek(it.toLong()) },
+                    valueRange = 0f..maximumPosition,
+                    enabled = state.isReady && state.durationMillis > 0,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(28.dp)
+                        .semantics { contentDescription = playbackPositionDescription },
+                )
+                Text(
+                    text = "${formatPlaybackDuration(state.elapsedMillis)} / ${formatPlaybackDuration(state.durationMillis)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+            Box {
+                TextButton(
+                    onClick = { showsSpeedMenu = true },
+                    enabled = state.isReady,
+                    modifier = Modifier.semantics { contentDescription = state.speed.title },
+                ) {
+                    Text(state.speed.title, fontWeight = FontWeight.SemiBold)
+                }
+                DropdownMenu(
+                    expanded = showsSpeedMenu,
+                    onDismissRequest = { showsSpeedMenu = false },
+                ) {
+                    ListenPlaybackSpeed.entries.forEach { speed ->
+                        DropdownMenuItem(
+                            text = { Text(speed.title) },
+                            trailingIcon = {
+                                if (speed == state.speed) Text("✓")
+                            },
+                            onClick = {
+                                showsSpeedMenu = false
+                                onSpeedChange(speed)
+                            },
+                        )
+                    }
+                }
+            }
+            HermexIconButton(
+                label = localizedString("Stop Listening"),
+                symbol = "×",
+                onClick = onStop,
+                modifier = Modifier.size(36.dp),
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@Composable
 private fun AttachmentOptionsSheet(
     onDismiss: () -> Unit,
     onAttachFile: () -> Unit,
     onPhotos: () -> Unit,
+    onCamera: () -> Unit,
 ) {
     PickerSheet(
         title = "Attach",
         onDismiss = onDismiss,
-        heightFraction = 0.36f,
+        heightFraction = 0.44f,
     ) {
         Column(Modifier.fillMaxSize()) {
             PickerSectionHeader("Attach")
@@ -2556,6 +2666,16 @@ private fun AttachmentOptionsSheet(
                 subtitle = "Choose images from your library",
                 selected = false,
                 onClick = onPhotos,
+            )
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.padding(start = 52.dp),
+            )
+            SelectorRow(
+                title = localizedString("Camera"),
+                subtitle = "Take a new photo",
+                selected = false,
+                onClick = onCamera,
             )
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant,
@@ -3509,6 +3629,7 @@ private fun MessageRow(
     loadTranscriptMediaImage: suspend (TranscriptMediaReference) -> ByteArray?,
     loadAttachmentFile: suspend (String) -> FileResponse?,
     actionContext: MessageActionContext?,
+    isListening: Boolean,
     messageActionEnabled: Boolean,
     isRegeneratingMessage: Boolean,
     isEditingMessage: Boolean,
@@ -3615,6 +3736,7 @@ private fun MessageRow(
     if (showsMessageActions && actionContext != null) {
         MessageActionSheet(
             context = actionContext,
+            isListening = isListening,
             messageActionEnabled = messageActionEnabled,
             isRegeneratingMessage = isRegeneratingMessage,
             isEditingMessage = isEditingMessage,
@@ -5223,6 +5345,7 @@ private fun UserMessageBubble(
 @Composable
 private fun MessageActionSheet(
     context: MessageActionContext,
+    isListening: Boolean,
     messageActionEnabled: Boolean,
     isRegeneratingMessage: Boolean,
     isEditingMessage: Boolean,
@@ -5250,7 +5373,7 @@ private fun MessageActionSheet(
         ) {
             if (context.role == MessageActionRole.Assistant) {
                 MessageActionSheetRow(
-                    title = localizedString("Listen"),
+                    title = localizedString(if (isListening) "Stop Listening" else "Listen"),
                     symbol = "\u266a",
                     enabled = context.listenText?.isNotBlank() == true,
                     onClick = onListen,

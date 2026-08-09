@@ -1097,16 +1097,7 @@ class ChatViewModel internal constructor(
 
     fun attach(context: Context, uri: Uri) {
         viewModelScope.launch {
-            var accepted = false
-            _state.update {
-                if (it.pendingAttachments.size + it.attachmentUploadsInFlight >= MAXIMUM_MESSAGE_ATTACHMENTS) {
-                    it.copy(error = "Attach up to $MAXIMUM_MESSAGE_ATTACHMENTS files per message.")
-                } else {
-                    accepted = true
-                    it.copy(attachmentUploadsInFlight = it.attachmentUploadsInFlight + 1, error = null)
-                }
-            }
-            if (!accepted) return@launch
+            if (!reserveAttachmentSlot()) return@launch
             val file = try {
                 copyUriToCache(context, uri)
             } catch (error: CancellationException) {
@@ -1121,14 +1112,51 @@ class ChatViewModel internal constructor(
                 }
                 return@launch
             }
-            val pending = PendingLocalAttachmentUpload(
-                cachedPath = file.absolutePath,
-                mimeType = context.contentResolver.getType(uri),
-            )
-            pendingLocalUploads[pending.id] = pending
-            persistPendingState(durable = true)
-            uploadPendingLocalAttachment(pending)
+            enqueuePendingLocalAttachment(file, context.contentResolver.getType(uri))
         }
+    }
+
+    fun attachCapturedPhoto(file: File) {
+        viewModelScope.launch {
+            if (!reserveAttachmentSlot()) {
+                file.delete()
+                return@launch
+            }
+            if (!file.isFile || file.length() !in 1..MAXIMUM_ATTACHMENT_BYTES) {
+                file.delete()
+                _state.update {
+                    it.copy(
+                        attachmentUploadsInFlight = (it.attachmentUploadsInFlight - 1).coerceAtLeast(0),
+                        error = "Captured photos must be 20 MB or smaller.",
+                    )
+                }
+                return@launch
+            }
+            enqueuePendingLocalAttachment(file, "image/jpeg")
+        }
+    }
+
+    private fun reserveAttachmentSlot(): Boolean {
+        var accepted = false
+        _state.update {
+            if (it.pendingAttachments.size + it.attachmentUploadsInFlight >= MAXIMUM_MESSAGE_ATTACHMENTS) {
+                it.copy(error = "Attach up to $MAXIMUM_MESSAGE_ATTACHMENTS files per message.")
+            } else {
+                accepted = true
+                it.copy(attachmentUploadsInFlight = it.attachmentUploadsInFlight + 1, error = null)
+            }
+        }
+        return accepted
+    }
+
+    private suspend fun enqueuePendingLocalAttachment(file: File, mimeType: String?) {
+        val pending = PendingLocalAttachmentUpload(
+            cachedPath = file.absolutePath,
+            mimeType = mimeType,
+        )
+        pendingLocalUploads[pending.id] = pending
+        persistPendingState(durable = true)
+        uploadPendingLocalAttachment(pending)
     }
 
     private fun resumePendingLocalUploads() {
