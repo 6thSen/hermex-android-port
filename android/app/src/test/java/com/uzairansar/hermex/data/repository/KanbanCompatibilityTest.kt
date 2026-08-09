@@ -145,6 +145,32 @@ class KanbanCompatibilityTest {
     }
 
     @Test
+    fun eventPollingUsesExactVerifiedQueryAndToleratesFutureFields() = runBlocking {
+        val server = MockWebServer()
+        try {
+            server.start()
+            server.enqueue(
+                json(
+                    """{"events":[{"id":43,"task_id":"CARD-1","kind":"updated","future":true}],"cursor":43,"latest_event_id":43,"future_envelope":{}}""",
+                ),
+            )
+            val repository = KanbanRepository(HermesApiClient(server.url("/"), OkHttpClient()))
+
+            val envelope = repository.events(board = "release", since = 42, limit = 75)
+
+            assertEquals(43, envelope.cursor)
+            assertEquals("CARD-1", envelope.events?.single()?.cardId)
+            val request = server.takeRequest()
+            assertEquals("/api/kanban/events", request.url.encodedPath)
+            assertEquals("release", request.url.queryParameter("board"))
+            assertEquals("42", request.url.queryParameter("since"))
+            assertEquals("75", request.url.queryParameter("limit"))
+        } finally {
+            server.close()
+        }
+    }
+
+    @Test
     fun kanbanConfigurationDropsOversizedOptionalCountsWithoutRejectingResponse() {
         val decoded = HermesJson.decodeFromString<KanbanConfiguration>(
             """{"columns":["todo"],"assignees":["one"],"future":999999999999}""",

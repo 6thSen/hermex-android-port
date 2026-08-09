@@ -10,10 +10,17 @@ import com.uzairansar.hermex.core.model.KanbanCompatibilityReport
 import com.uzairansar.hermex.core.model.KanbanCompatibilityWarning
 import com.uzairansar.hermex.core.model.KanbanConfiguration
 import com.uzairansar.hermex.core.model.KanbanContractViolation
+import com.uzairansar.hermex.core.model.KanbanEventsEnvelope
 import com.uzairansar.hermex.core.model.KanbanLinkCounts
 import com.uzairansar.hermex.core.model.KanbanStats
+import com.uzairansar.hermex.core.network.ApiError
+import com.uzairansar.hermex.core.network.KanbanStreamFrame
 import com.uzairansar.hermex.data.repository.KanbanBrowseDataSource
 import com.uzairansar.hermex.data.repository.KanbanBrowseFilters
+import java.io.IOException
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 internal class KanbanLabFixtureDataSource(
     private val scenario: String,
@@ -56,6 +63,18 @@ internal class KanbanLabFixtureDataSource(
 
     override suspend fun assignees(board: String): KanbanAssigneeHistory =
         KanbanAssigneeHistory(listOf(KanbanAssigneeValue("builder"), KanbanAssigneeValue("reviewer")))
+
+    override suspend fun events(board: String, since: Int, limit: Int): KanbanEventsEnvelope {
+        if (scenario == "offline") throw ApiError.Network(IOException("Fixture is offline."))
+        return KanbanEventsEnvelope(events = emptyList(), cursor = maxOf(since, 42), latestEventId = 42)
+    }
+
+    override fun eventStream(board: String, since: Int): Flow<KanbanStreamFrame> = flow {
+        when (scenario) {
+            "offline", "delayed" -> throw IOException("Fixture stream is unavailable.")
+            else -> awaitCancellation()
+        }
+    }
 
     private fun snapshot(board: String, filters: KanbanBrowseFilters): KanbanBoardSnapshot {
         val cards = when {
@@ -108,4 +127,11 @@ internal class KanbanLabFixtureDataSource(
     )
 }
 
-internal val supportedKanbanLabScenarios = setOf("dense", "empty", "incompatible", "read-only")
+internal val supportedKanbanLabScenarios = setOf(
+    "dense",
+    "empty",
+    "incompatible",
+    "read-only",
+    "offline",
+    "delayed",
+)

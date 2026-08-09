@@ -8,6 +8,11 @@ import com.uzairansar.hermex.core.model.KanbanBoardSnapshot
 import com.uzairansar.hermex.core.model.KanbanStats
 import com.uzairansar.hermex.core.model.KanbanAssigneeHistory
 import com.uzairansar.hermex.core.network.HermesApiClient
+import com.uzairansar.hermex.core.network.KanbanEventStreamingClient
+import com.uzairansar.hermex.core.network.KanbanStreamFrame
+import java.io.IOException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import okhttp3.HttpUrl
 
 data class KanbanBrowseFilters(
@@ -22,10 +27,17 @@ interface KanbanBrowseDataSource {
     suspend fun boardSnapshot(board: String, filters: KanbanBrowseFilters): KanbanBoardSnapshot
     suspend fun stats(board: String): KanbanStats
     suspend fun assignees(board: String): KanbanAssigneeHistory
+    suspend fun events(board: String, since: Int, limit: Int = 200): KanbanEventsEnvelope =
+        KanbanEventsEnvelope(events = emptyList(), cursor = since)
+
+    fun eventStream(board: String, since: Int): Flow<KanbanStreamFrame> = flow {
+        throw IOException("Kanban live updates are unavailable.")
+    }
 }
 
 class KanbanRepository(
     private val client: HermesApiClient,
+    private val streamingClient: KanbanEventStreamingClient? = null,
 ) : KanbanBrowseDataSource {
     override suspend fun compatibilityHandshake(): KanbanCompatibilityReport {
         val configuration = client.kanbanConfiguration()
@@ -65,8 +77,11 @@ class KanbanRepository(
 
     override suspend fun stats(board: String): KanbanStats = client.kanbanStats(board)
     override suspend fun assignees(board: String): KanbanAssigneeHistory = client.kanbanAssignees(board)
-    suspend fun events(board: String, since: Int, limit: Int = 200): KanbanEventsEnvelope =
+    override suspend fun events(board: String, since: Int, limit: Int): KanbanEventsEnvelope =
         client.kanbanEvents(board, since, limit)
+    override fun eventStream(board: String, since: Int): Flow<KanbanStreamFrame> =
+        streamingClient?.stream(eventsStreamUrl(board, since)) ?: super.eventStream(board, since)
+
     fun eventsStreamUrl(board: String, since: Int): HttpUrl = client.kanbanEventsStreamUrl(board, since)
 
     private fun validateSnapshot(snapshot: KanbanBoardSnapshot) {

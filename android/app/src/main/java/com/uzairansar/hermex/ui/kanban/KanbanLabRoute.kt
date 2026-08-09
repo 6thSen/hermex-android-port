@@ -32,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,8 +50,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.uzairansar.hermex.core.model.KanbanBoardSummary
 import com.uzairansar.hermex.core.model.KanbanCardSummary
 import com.uzairansar.hermex.core.model.KanbanCompatibilityWarning
@@ -64,22 +68,43 @@ import com.uzairansar.hermex.ui.theme.hermexGlass
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KanbanLabRoute(
+internal fun KanbanLabRoute(
     repository: KanbanBrowseDataSource,
     onBack: () -> Unit,
     viewModelKey: String = "kanban-lab",
+    liveTiming: KanbanLiveTiming = KanbanLiveTiming(),
 ) {
-    val factory = remember(repository) {
+    val factory = remember(repository, liveTiming) {
         object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")
-                return KanbanLabViewModel(repository) as T
+                return KanbanLabViewModel(repository, liveTiming) as T
             }
         }
     }
     val viewModel: KanbanLabViewModel = viewModel(key = viewModelKey, factory = factory)
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showsFilters by rememberSaveable { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val lifecycle = lifecycleOwner.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.setLifecycleActive(true)
+                Lifecycle.Event.ON_STOP -> viewModel.setLifecycleActive(false)
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        viewModel.setVisible(true)
+        viewModel.setLifecycleActive(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose {
+            lifecycle.removeObserver(observer)
+            viewModel.setLifecycleActive(false)
+            viewModel.setVisible(false)
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         KanbanTopBar(
@@ -215,7 +240,7 @@ private fun KanbanUnavailable(availability: KanbanAvailability, onRetry: () -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun KanbanBoardContent(
+internal fun KanbanBoardContent(
     state: KanbanLabUiState,
     onRefresh: () -> Unit,
     onSearch: (String) -> Unit,
@@ -223,6 +248,18 @@ private fun KanbanBoardContent(
     onClearFilters: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
+        when {
+            state.isOffline -> KanbanConnectivityBanner(
+                text = localizedString("Offline—showing previously loaded data"),
+                offline = true,
+                testTag = "kanban_offline_notice",
+            )
+            state.liveUpdatesDelayed -> KanbanConnectivityBanner(
+                text = localizedString("Live updates delayed"),
+                offline = false,
+                testTag = "kanban_live_delayed_notice",
+            )
+        }
         if (state.warnings.isNotEmpty()) KanbanCompatibilityBanner(state.warnings)
         if (state.refreshFailed) {
             Row(
@@ -273,6 +310,23 @@ private fun KanbanBoardContent(
             }
         }
     }
+}
+
+@Composable
+private fun KanbanConnectivityBanner(text: String, offline: Boolean, testTag: String) {
+    val background = if (offline) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+    val foreground = if (offline) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(background)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .semantics { contentDescription = text }
+            .testTag(testTag),
+        style = MaterialTheme.typography.bodyMedium,
+        color = foreground,
+    )
 }
 
 @Composable

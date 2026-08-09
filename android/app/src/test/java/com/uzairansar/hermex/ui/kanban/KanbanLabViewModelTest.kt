@@ -85,7 +85,7 @@ class KanbanLabViewModelTest {
     }
 
     @Test
-    fun refreshFailurePreservesLoadedBoardAndShowsRetryState() = runTest {
+    fun networkRefreshFailurePreservesLoadedBoardAndMarksItOffline() = runTest {
         val repository = FakeKanbanBrowseDataSource()
         val viewModel = KanbanLabViewModel(repository)
         repository.handshakeFailure = IOException("offline")
@@ -94,7 +94,8 @@ class KanbanLabViewModelTest {
 
         assertEquals(KanbanAvailability.Content, viewModel.state.value.availability)
         assertEquals("main", viewModel.state.value.selectedBoardSlug)
-        assertTrue(viewModel.state.value.refreshFailed)
+        assertFalse(viewModel.state.value.refreshFailed)
+        assertTrue(viewModel.state.value.isOffline)
         assertFalse(viewModel.state.value.isRefreshing)
     }
 

@@ -186,6 +186,7 @@ class EndpointTest {
             since = 42,
         ).url(base)
         val events = Endpoint.KanbanEvents("main", since = -4, limit = 900).url(base)
+        val stream = Endpoint.KanbanEventsStream("main", since = -4).url(base)
         val log = Endpoint.KanbanCardLog("card/../unsafe", "main", tailBytes = 9_000_000).url(base)
 
         assertEquals("/api/kanban/board", board.encodedPath)
@@ -194,6 +195,9 @@ class EndpointTest {
         assertEquals("42", board.queryParameter("since"))
         assertEquals("0", events.queryParameter("since"))
         assertEquals("200", events.queryParameter("limit"))
+        assertEquals("/api/kanban/events/stream", stream.encodedPath)
+        assertEquals("main", stream.queryParameter("board"))
+        assertEquals("0", stream.queryParameter("since"))
         assertEquals("/api/kanban/tasks/card%2F..%2Funsafe/log", log.encodedPath)
         assertEquals("2000000", log.queryParameter("tail"))
     }

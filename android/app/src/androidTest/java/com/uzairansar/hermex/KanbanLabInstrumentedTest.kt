@@ -10,6 +10,13 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.uzairansar.hermex.ui.kanban.KanbanLabRoute
+import com.uzairansar.hermex.ui.kanban.KanbanAvailability
+import com.uzairansar.hermex.ui.kanban.KanbanBoardContent
+import com.uzairansar.hermex.ui.kanban.KanbanLabUiState
+import com.uzairansar.hermex.core.model.KanbanBoardSnapshot
+import com.uzairansar.hermex.core.model.KanbanBoardSummary
+import com.uzairansar.hermex.core.model.KanbanCardSummary
+import com.uzairansar.hermex.core.model.KanbanColumn
 import com.uzairansar.hermex.ui.theme.HermexTheme
 import java.util.concurrent.CopyOnWriteArrayList
 import mockwebserver3.Dispatcher
@@ -118,6 +125,9 @@ class KanbanLabInstrumentedTest {
                 }
             }
             composeRule.onNodeWithTag("kanban_status_todo").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("CARD-release").fetchSemanticsNodes().isNotEmpty()
+            }
             composeRule.onNodeWithText("CARD-release").assertIsDisplayed()
 
             assertTrue(requests.any { it.url.encodedPath == "/api/kanban/config" })
@@ -153,6 +163,64 @@ class KanbanLabInstrumentedTest {
             server.close()
         }
     }
+
+    @Test
+    fun streamFailureFallsBackToPollingWithPersistentDelayedNotice() {
+        composeRule.setContent {
+            HermexTheme {
+                KanbanBoardContent(
+                    state = liveUiState(liveUpdatesDelayed = true),
+                    onRefresh = {},
+                    onSearch = {},
+                    onSelectStatus = {},
+                    onClearFilters = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("kanban_live_delayed_notice").assertIsDisplayed()
+        composeRule.onNodeWithText("CARD-1").assertIsDisplayed()
+    }
+
+    @Test
+    fun connectivityLossPreservesBoardAndShowsOfflineNotice() {
+        composeRule.setContent {
+            HermexTheme {
+                KanbanBoardContent(
+                    state = liveUiState(isOffline = true),
+                    onRefresh = {},
+                    onSearch = {},
+                    onSelectStatus = {},
+                    onClearFilters = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("kanban_offline_notice").assertIsDisplayed()
+        composeRule.onNodeWithText("CARD-1").assertIsDisplayed()
+    }
+
+    private fun liveUiState(
+        isOffline: Boolean = false,
+        liveUpdatesDelayed: Boolean = false,
+    ) = KanbanLabUiState(
+        availability = KanbanAvailability.Content,
+        boards = listOf(KanbanBoardSummary(slug = "main", name = "Main")),
+        selectedBoardSlug = "main",
+        snapshot = KanbanBoardSnapshot(
+            columns = listOf(
+                KanbanColumn(
+                    name = "triage",
+                    cards = listOf(KanbanCardSummary(cardId = "CARD-1", title = "Cached Card", status = "triage")),
+                ),
+            ),
+            changed = true,
+            latestEventId = 42,
+            readOnly = true,
+        ),
+        isOffline = isOffline,
+        liveUpdatesDelayed = liveUpdatesDelayed,
+    )
 
     private fun json(body: String): MockResponse = MockResponse.Builder()
         .code(200)

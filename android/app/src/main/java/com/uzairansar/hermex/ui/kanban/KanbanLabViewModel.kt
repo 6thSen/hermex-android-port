@@ -9,15 +9,21 @@ import com.uzairansar.hermex.core.model.KanbanCompatibilityReport
 import com.uzairansar.hermex.core.model.KanbanCompatibilityWarning
 import com.uzairansar.hermex.core.model.KanbanConfiguration
 import com.uzairansar.hermex.core.model.KanbanContractViolation
+import com.uzairansar.hermex.core.model.KanbanEventsEnvelope
 import com.uzairansar.hermex.core.model.KanbanStats
 import com.uzairansar.hermex.core.network.ApiError
+import com.uzairansar.hermex.core.network.KanbanStreamFrame
 import com.uzairansar.hermex.data.repository.KanbanBrowseDataSource
 import com.uzairansar.hermex.data.repository.KanbanBrowseFilters
 import java.io.IOException
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 internal enum class KanbanAvailability {
@@ -28,6 +34,14 @@ internal enum class KanbanAvailability {
     ServerUnavailable,
     IncompatibleContract,
 }
+
+internal data class KanbanLiveTiming(
+    val reconnectDelaysMillis: List<Long> = listOf(1_000, 2_000),
+    val failuresBeforePolling: Int = 3,
+    val coalescingDelayMillis: Long = 250,
+    val pollingIntervalMillis: Long = 30_000,
+    val initialPollingDelayMillis: Long? = null,
+)
 
 internal data class KanbanFilterState(
     val profile: String? = null,
@@ -61,6 +75,8 @@ internal data class KanbanLabUiState(
     val searchQuery: String = "",
     val isRefreshing: Boolean = false,
     val refreshFailed: Boolean = false,
+    val isOffline: Boolean = false,
+    val liveUpdatesDelayed: Boolean = false,
 ) {
     val selectedBoard: KanbanBoardSummary?
         get() = boards.firstOrNull { it.slug?.trim() == selectedBoardSlug }
@@ -83,17 +99,29 @@ internal data class KanbanLabUiState(
 
 internal class KanbanLabViewModel(
     private val repository: KanbanBrowseDataSource,
+    private val liveTiming: KanbanLiveTiming = KanbanLiveTiming(),
 ) : ViewModel() {
-    private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(KanbanLabUiState())
-    val state: kotlinx.coroutines.flow.StateFlow<KanbanLabUiState> = mutableState
+    private val mutableState = MutableStateFlow(KanbanLabUiState())
+    val state: StateFlow<KanbanLabUiState> = mutableState
 
     private var loadGeneration = 0
+    private var liveGeneration = 0
+    private var liveCursor = 0
+    private var streamFailureCount = 0
+    private var isVisible = false
+    private var lifecycleActive = false
+    private var hasBeenLifecycleActive = false
+    private var streamJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var coalescingJob: Job? = null
+    private var pollingJob: Job? = null
 
     init {
         load()
     }
 
     fun load() {
+        suspendLiveUpdates()
         val generation = ++loadGeneration
         val previous = mutableState.value
         mutableState.value = if (previous.availability == KanbanAvailability.Content) {
@@ -126,6 +154,8 @@ internal class KanbanLabViewModel(
                 val selectedStatus = previous.selectedStatus.takeIf(statuses::contains)
                     ?: "triage".takeIf(statuses::contains)
                     ?: statuses.firstOrNull().orEmpty()
+                liveCursor = snapshot.latestEventId?.coerceAtLeast(0) ?: 0
+                streamFailureCount = 0
                 mutableState.value = KanbanLabUiState(
                     availability = KanbanAvailability.Content,
                     configuration = report.configuration,
@@ -138,17 +168,48 @@ internal class KanbanLabViewModel(
                     filters = filters,
                     selectedStatus = selectedStatus,
                     searchQuery = previous.searchQuery,
+                    isOffline = false,
+                    liveUpdatesDelayed = false,
                 )
+                startLiveUpdatesIfReady()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 if (generation != loadGeneration) return@launch
                 mutableState.value = if (previous.availability == KanbanAvailability.Content) {
-                    previous.copy(isRefreshing = false, refreshFailed = true)
+                    val offline = isOfflineError(error)
+                    previous.copy(
+                        isRefreshing = false,
+                        refreshFailed = !offline,
+                        isOffline = previous.isOffline || offline,
+                    )
                 } else {
                     KanbanLabUiState(availability = kanbanAvailabilityFor(error))
                 }
+                if (mutableState.value.isOffline) startPollingIfNeeded()
             }
+        }
+    }
+
+    fun setVisible(visible: Boolean) {
+        if (isVisible == visible) return
+        isVisible = visible
+        if (visible) startLiveUpdatesIfReady() else suspendLiveUpdates()
+    }
+
+    fun setLifecycleActive(active: Boolean) {
+        if (lifecycleActive == active) return
+        lifecycleActive = active
+        if (!active) {
+            suspendLiveUpdates()
+            return
+        }
+        val returningToForeground = hasBeenLifecycleActive
+        hasBeenLifecycleActive = true
+        if (returningToForeground && isVisible && mutableState.value.availability == KanbanAvailability.Content) {
+            load()
+        } else {
+            startLiveUpdatesIfReady()
         }
     }
 
@@ -189,6 +250,7 @@ internal class KanbanLabViewModel(
     }
 
     private fun loadBoard(slug: String, filters: KanbanFilterState) {
+        suspendLiveUpdates()
         val previous = mutableState.value
         val generation = ++loadGeneration
         mutableState.value = previous.copy(isRefreshing = true, refreshFailed = false)
@@ -209,6 +271,8 @@ internal class KanbanLabViewModel(
                     snapshot = snapshot,
                     warnings = previous.warnings,
                 )
+                liveCursor = snapshot.latestEventId?.coerceAtLeast(0) ?: 0
+                streamFailureCount = 0
                 mutableState.value = previous.copy(
                     availability = KanbanAvailability.Content,
                     selectedBoardSlug = slug,
@@ -220,14 +284,237 @@ internal class KanbanLabViewModel(
                     selectedStatus = selectedStatus,
                     isRefreshing = false,
                     refreshFailed = false,
+                    isOffline = false,
+                    liveUpdatesDelayed = false,
                 )
+                startLiveUpdatesIfReady()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (generation == loadGeneration) {
+                    val offline = isOfflineError(error)
+                    mutableState.value = previous.copy(
+                        isRefreshing = false,
+                        refreshFailed = !offline,
+                        isOffline = previous.isOffline || offline,
+                    )
+                    if (mutableState.value.isOffline) startPollingIfNeeded() else startLiveUpdatesIfReady()
+                }
+            }
+        }
+    }
+
+    private fun startLiveUpdatesIfReady() {
+        val state = mutableState.value
+        if (!isVisible || !lifecycleActive || state.availability != KanbanAvailability.Content) return
+        if (state.isOffline) {
+            startPollingIfNeeded()
+            return
+        }
+        if (streamJob?.isActive == true || reconnectJob?.isActive == true || pollingJob?.isActive == true) return
+        startStream()
+    }
+
+    private fun startStream() {
+        val board = mutableState.value.selectedBoardSlug ?: return
+        if (!isVisible || !lifecycleActive) return
+        val generation = liveGeneration
+        streamJob?.cancel()
+        streamJob = viewModelScope.launch {
+            var failed = false
+            try {
+                repository.eventStream(board, liveCursor).collect { frame ->
+                    if (!isCurrentLiveWork(board, generation)) throw CancellationException()
+                    when (frame) {
+                        is KanbanStreamFrame.Hello -> {
+                            if (frame.board != board) throw MalformedKanbanLiveUpdate
+                            liveCursor = maxOf(liveCursor, frame.cursor)
+                            streamFailureCount = 0
+                            mutableState.value = mutableState.value.copy(liveUpdatesDelayed = false)
+                            if (mutableState.value.isOffline) {
+                                scheduleCoalescedReconciliation(board, generation, immediate = true)
+                            }
+                        }
+                        is KanbanStreamFrame.Events -> {
+                            validateEventFrame(frame.events.map { it.eventId }, frame.cursor, frame.frameId)
+                            if (frame.cursor > liveCursor) {
+                                liveCursor = frame.cursor
+                                scheduleCoalescedReconciliation(board, generation)
+                            }
+                        }
+                        KanbanStreamFrame.Malformed -> throw MalformedKanbanLiveUpdate
+                        KanbanStreamFrame.Ignored -> Unit
+                    }
+                }
+                failed = true
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Throwable) {
-                if (generation == loadGeneration) {
-                    mutableState.value = previous.copy(isRefreshing = false, refreshFailed = true)
+                failed = true
+            } finally {
+                if (failed && isCurrentLiveWork(board, generation)) {
+                    streamJob = null
+                    handleStreamFailure(board, generation)
                 }
             }
+        }
+    }
+
+    private fun handleStreamFailure(board: String, generation: Int) {
+        if (!isCurrentLiveWork(board, generation)) return
+        streamFailureCount += 1
+        if (streamFailureCount >= liveTiming.failuresBeforePolling.coerceAtLeast(1)) {
+            mutableState.value = mutableState.value.copy(liveUpdatesDelayed = true)
+            startPollingIfNeeded()
+            return
+        }
+        val delays = liveTiming.reconnectDelaysMillis.ifEmpty { listOf(1_000L) }
+        val delayMillis = delays[minOf(streamFailureCount - 1, delays.lastIndex)].coerceAtLeast(0L)
+        reconnectJob?.cancel()
+        reconnectJob = viewModelScope.launch {
+            delay(delayMillis)
+            reconnectJob = null
+            if (isCurrentLiveWork(board, generation)) startStream()
+        }
+    }
+
+    private fun scheduleCoalescedReconciliation(
+        board: String,
+        generation: Int,
+        immediate: Boolean = false,
+    ) {
+        coalescingJob?.cancel()
+        coalescingJob = viewModelScope.launch {
+            if (!immediate) delay(liveTiming.coalescingDelayMillis.coerceAtLeast(0))
+            if (!isCurrentLiveWork(board, generation)) return@launch
+            val succeeded = refreshLiveBoard(board, generation)
+            coalescingJob = null
+            if (!succeeded && mutableState.value.isOffline) startPollingIfNeeded()
+        }
+    }
+
+    private fun startPollingIfNeeded() {
+        val board = mutableState.value.selectedBoardSlug ?: return
+        if (!isVisible || !lifecycleActive || pollingJob?.isActive == true) return
+        streamJob?.cancel()
+        streamJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        val generation = liveGeneration
+        pollingJob = viewModelScope.launch {
+            var nextDelayMillis = liveTiming.initialPollingDelayMillis
+                ?: liveTiming.pollingIntervalMillis
+            while (isCurrentLiveWork(board, generation)) {
+                delay(nextDelayMillis.coerceAtLeast(1))
+                if (!isCurrentLiveWork(board, generation)) return@launch
+                pollEvents(board, generation)
+                nextDelayMillis = liveTiming.pollingIntervalMillis
+            }
+        }
+    }
+
+    private suspend fun pollEvents(board: String, generation: Int) {
+        try {
+            val envelope = repository.events(board, liveCursor)
+            if (!isCurrentLiveWork(board, generation)) return
+            val cursor = validateEventsEnvelope(envelope)
+            if (mutableState.value.isOffline) {
+                liveCursor = maxOf(liveCursor, cursor)
+                if (refreshLiveBoard(board, generation)) retryLiveStream()
+            } else if (cursor > liveCursor) {
+                liveCursor = cursor
+                scheduleCoalescedReconciliation(board, generation)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (isCurrentLiveWork(board, generation) && isOfflineError(error)) markOffline()
+        }
+    }
+
+    private suspend fun refreshLiveBoard(board: String, generation: Int): Boolean {
+        val requestState = mutableState.value
+        return try {
+            val snapshot = repository.boardSnapshot(board, requestState.filters.request())
+            val supplementary = loadSupplementary(board)
+            if (!isCurrentLiveWork(board, generation)) return false
+            val current = mutableState.value
+            val selectedBoard = current.boards.firstOrNull { it.slug?.trim() == board }
+                ?: return false
+            val report = KanbanCompatibilityReport(
+                configuration = current.configuration ?: return false,
+                boards = current.boards,
+                currentBoard = selectedBoard,
+                snapshot = snapshot,
+                warnings = current.warnings,
+            )
+            liveCursor = maxOf(liveCursor, snapshot.latestEventId?.coerceAtLeast(0) ?: 0)
+            mutableState.value = current.copy(
+                snapshot = snapshot,
+                stats = supplementary.first,
+                assigneeHistory = supplementary.second,
+                warnings = warningsFor(report, board, snapshot),
+                refreshFailed = false,
+                isOffline = false,
+            )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (isCurrentLiveWork(board, generation) && isOfflineError(error)) markOffline()
+            false
+        }
+    }
+
+    private fun retryLiveStream() {
+        if (!isVisible || !lifecycleActive) return
+        pollingJob?.cancel()
+        pollingJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        streamFailureCount = 0
+        mutableState.value = mutableState.value.copy(liveUpdatesDelayed = false, isOffline = false)
+        startStream()
+    }
+
+    private fun suspendLiveUpdates() {
+        liveGeneration += 1
+        streamJob?.cancel()
+        streamJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        coalescingJob?.cancel()
+        coalescingJob = null
+        pollingJob?.cancel()
+        pollingJob = null
+    }
+
+    private fun markOffline() {
+        if (mutableState.value.snapshot == null) return
+        mutableState.value = mutableState.value.copy(isOffline = true, refreshFailed = false)
+    }
+
+    private fun isCurrentLiveWork(board: String, generation: Int): Boolean =
+        generation == liveGeneration &&
+            mutableState.value.selectedBoardSlug == board &&
+            isVisible &&
+            lifecycleActive
+
+    private fun validateEventsEnvelope(envelope: KanbanEventsEnvelope): Int {
+        val cursor = envelope.cursor ?: throw MalformedKanbanLiveUpdate
+        validateEventFrame(envelope.events?.map { it.eventId }, cursor, frameId = null)
+        if (cursor < liveCursor) throw MalformedKanbanLiveUpdate
+        return cursor
+    }
+
+    private fun validateEventFrame(eventIds: List<Int?>?, cursor: Int, frameId: Int?) {
+        if (
+            cursor < 0 ||
+            (frameId != null && frameId != cursor) ||
+            eventIds == null ||
+            eventIds.any { it == null || it < 0 || it > cursor }
+        ) {
+            throw MalformedKanbanLiveUpdate
         }
     }
 
@@ -260,11 +547,18 @@ internal class KanbanLabViewModel(
             }
         }.distinct()
     }
+
+    override fun onCleared() {
+        suspendLiveUpdates()
+        super.onCleared()
+    }
 }
 
 internal fun kanbanAvailabilityFor(error: Throwable): KanbanAvailability = when (error) {
     ApiError.Unauthorized -> KanbanAvailability.AuthenticationRequired
-    is IOException -> KanbanAvailability.NetworkUnavailable
+    is ApiError.Network,
+    is IOException,
+    -> KanbanAvailability.NetworkUnavailable
     is ApiError.Http -> if (error.statusCode >= 500) {
         KanbanAvailability.ServerUnavailable
     } else {
@@ -275,5 +569,9 @@ internal fun kanbanAvailabilityFor(error: Throwable): KanbanAvailability = when 
     -> KanbanAvailability.IncompatibleContract
     else -> KanbanAvailability.ServerUnavailable
 }
+
+private fun isOfflineError(error: Throwable): Boolean = error is ApiError.Network || error is IOException
+
+private data object MalformedKanbanLiveUpdate : IOException("The Kanban live update response was malformed.")
 
 private fun String?.normalizedFilterValue(): String? = this?.trim()?.takeIf(String::isNotEmpty)

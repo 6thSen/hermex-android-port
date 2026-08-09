@@ -24,6 +24,14 @@ class HermexDeepLinkTest {
             Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab?scenario=dense")).hermexRoute(),
         )
         assertEquals(
+            "kanban-lab?scenario=offline",
+            Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab?scenario=offline")).hermexRoute(),
+        )
+        assertEquals(
+            "kanban-lab?scenario=delayed",
+            Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab?scenario=delayed")).hermexRoute(),
+        )
+        assertEquals(
             "kanban-lab",
             Intent(Intent.ACTION_VIEW, Uri.parse("hermes-agent://kanban-lab?scenario=unknown")).hermexRoute(),
         )

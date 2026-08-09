@@ -46,6 +46,7 @@ import com.uzairansar.hermex.ui.chat.ChatRoute
 import com.uzairansar.hermex.ui.git.GitRoute
 import com.uzairansar.hermex.ui.kanban.KanbanLabRoute
 import com.uzairansar.hermex.ui.kanban.KanbanLabFixtureDataSource
+import com.uzairansar.hermex.ui.kanban.KanbanLiveTiming
 import com.uzairansar.hermex.ui.kanban.supportedKanbanLabScenarios
 import com.uzairansar.hermex.ui.localization.localizedString
 import com.uzairansar.hermex.ui.onboarding.OnboardingRoute
@@ -534,6 +535,17 @@ fun HermexApp(
                             KanbanLabRoute(
                                 repository = remember(fixture) { KanbanLabFixtureDataSource(fixture) },
                                 viewModelKey = "kanban-lab-fixture:$fixture",
+                                liveTiming = if (fixture == "offline" || fixture == "delayed") {
+                                    KanbanLiveTiming(
+                                        reconnectDelaysMillis = listOf(50),
+                                        failuresBeforePolling = 1,
+                                        coalescingDelayMillis = 20,
+                                        pollingIntervalMillis = 30_000,
+                                        initialPollingDelayMillis = if (fixture == "offline") 50 else null,
+                                    )
+                                } else {
+                                    KanbanLiveTiming()
+                                },
                                 onBack = { navController.popBackStack() },
                             )
                         } else if (server != null) {
