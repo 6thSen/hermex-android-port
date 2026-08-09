@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -104,6 +105,7 @@ import com.uzairansar.hermex.core.model.SessionSummary
 import com.uzairansar.hermex.data.repository.AuthState
 import com.uzairansar.hermex.ui.ShortcutDestination
 import com.uzairansar.hermex.ui.ProfileShortcutPublisher
+import com.uzairansar.hermex.ui.SavedStatePolicy
 import com.uzairansar.hermex.ui.theme.HermesHeaderLogo
 import com.uzairansar.hermex.ui.theme.HermexCardShape
 import com.uzairansar.hermex.ui.theme.HermexColors
@@ -180,6 +182,9 @@ fun SessionListRoute(
     var expandedActionsFor by rememberSaveable { mutableStateOf<String?>(null) }
     var profilesExpanded by rememberSaveable { mutableStateOf(false) }
     var projectsExpanded by rememberSaveable { mutableStateOf(false) }
+    var scheduledSessionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var viewingAllScheduledSessions by rememberSaveable { mutableStateOf(false) }
+    var scheduledSessionsQuery by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var isCreatingProject by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
@@ -202,6 +207,10 @@ fun SessionListRoute(
     BackHandler(enabled = searchExpanded) {
         viewModel.clearSearch()
         searchExpanded = false
+    }
+    BackHandler(enabled = viewingAllScheduledSessions) {
+        viewingAllScheduledSessions = false
+        scheduledSessionsQuery = ""
     }
 
     // Navigation keeps this ViewModel alive while chat is on top. Refresh each time
@@ -247,6 +256,32 @@ fun SessionListRoute(
             clipboard.setPrimaryClip(ClipData.newPlainText("Hermex session deeplink", deepLink))
         }
     }
+    val sessionRowContent: @Composable (SessionSummary, String) -> Unit = { session, rowKey ->
+        SessionRow(
+            session = session,
+            projects = state.projects,
+            isMutating = state.isMutating,
+            isViewingCachedData = state.isViewingCachedData,
+            showsMessageCount = state.sessionRowDisplaySettings.showMessageCount,
+            showsWorkspace = state.sessionRowDisplaySettings.showWorkspace,
+            selected = selectedSessionId != null && selectedSessionId == session.sessionId,
+            actionsExpanded = expandedActionsFor == rowKey,
+            onOpen = { session.sessionId?.let(onOpenChat) },
+            onToggleActions = {
+                expandedActionsFor = if (expandedActionsFor == rowKey) null else rowKey
+            },
+            onPin = { viewModel.togglePin(session) },
+            onArchive = { viewModel.toggleArchive(session) },
+            onCopyTitle = { copySessionTitle(session) },
+            onCopyDeepLink = { copySessionDeepLink(session) },
+            onRename = { viewModel.requestRename(session) },
+            onDelete = { viewModel.requestDelete(session) },
+            onBranch = { viewModel.requestBranch(session) },
+            onDuplicate = { viewModel.duplicate(session) },
+            onMove = { projectId -> viewModel.move(session, projectId) },
+            onExport = { format -> viewModel.exportSession(session, format) },
+        )
+    }
 
     LaunchedEffect(shortcutKey, shortcutAction, shortcutProfile, shortcutConsumed) {
         if (!shortcutConsumed && shortcutAction == ShortcutDestination.ShareAction) {
@@ -259,7 +294,24 @@ fun SessionListRoute(
         }
     }
 
-    Box(
+    if (viewingAllScheduledSessions) {
+        ScheduledSessionsScreen(
+            state = state,
+            query = scheduledSessionsQuery,
+            onQueryChange = {
+                scheduledSessionsQuery = SavedStatePolicy.boundedInput(
+                    it,
+                    SavedStatePolicy.MaximumSearchCharacters,
+                )
+            },
+            onBack = {
+                viewingAllScheduledSessions = false
+                scheduledSessionsQuery = ""
+            },
+            onRefresh = viewModel::refreshAll,
+            sessionRowContent = sessionRowContent,
+        )
+    } else Box(
         modifier = Modifier.fillMaxSize(),
     ) {
         PullToRefreshBox(
@@ -270,7 +322,8 @@ fun SessionListRoute(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding(),
+                    .statusBarsPadding()
+                    .testTag("session_list"),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
@@ -341,58 +394,73 @@ fun SessionListRoute(
                 item {
                     StatusStack(state = state)
                 }
-                if (!state.showArchived && !searchExpanded) {
-                    item {
-                        Text(
-                            stringResource(R.string.sessions_title),
-                            modifier = Modifier.padding(start = 8.dp, top = 22.dp, bottom = 10.dp),
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
                 if (state.isLoading) {
                     item {
                         Box(Modifier.fillMaxWidth().padding(top = 30.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(strokeWidth = 2.dp)
                         }
                     }
-                } else if (state.visibleSessions.isEmpty()) {
-                    item {
-                        EmptySessionsRow()
-                    }
                 } else {
-                    itemsIndexed(
-                        items = state.visibleSessions,
-                        key = { index, session -> "${session.stableId}:$index" },
-                    ) { index, session ->
-                        val rowKey = "${session.stableId}:$index"
-                        SessionRow(
-                            session = session,
-                            projects = state.projects,
-                            isMutating = state.isMutating,
-                            isViewingCachedData = state.isViewingCachedData,
-                            showsMessageCount = state.sessionRowDisplaySettings.showMessageCount,
-                            showsWorkspace = state.sessionRowDisplaySettings.showWorkspace,
-                            selected = selectedSessionId != null && selectedSessionId == session.sessionId,
-                            actionsExpanded = expandedActionsFor == rowKey,
-                            onOpen = { session.sessionId?.let(onOpenChat) },
-                            onToggleActions = {
-                                expandedActionsFor = if (expandedActionsFor == rowKey) null else rowKey
-                            },
-                            onPin = { viewModel.togglePin(session) },
-                            onArchive = { viewModel.toggleArchive(session) },
-                            onCopyTitle = { copySessionTitle(session) },
-                            onCopyDeepLink = { copySessionDeepLink(session) },
-                            onRename = { viewModel.requestRename(session) },
-                            onDelete = { viewModel.requestDelete(session) },
-                            onBranch = { viewModel.requestBranch(session) },
-                            onDuplicate = { viewModel.duplicate(session) },
-                            onMove = { projectId -> viewModel.move(session, projectId) },
-                            onExport = { format ->
-                                viewModel.exportSession(session, format)
-                            },
-                        )
+                    val scheduledGroups = state.scheduledSessionGroups
+                    val searchIsActive = state.searchQuery.trim().isNotEmpty()
+                    val showsScheduledDisclosure = !state.showArchived &&
+                        scheduledGroups.showsDisclosure(searchIsActive)
+                    val scheduledIsExpanded = searchIsActive || scheduledSessionsExpanded
+                    val scheduledRows = if (searchIsActive) {
+                        scheduledGroups.scheduled
+                    } else {
+                        scheduledGroups.scheduledPreview
+                    }
+                    if (showsScheduledDisclosure) {
+                        item(key = "scheduled_sessions_disclosure") {
+                            ScheduledSessionsDisclosureHeader(
+                                count = scheduledGroups.totalScheduledCount,
+                                expanded = scheduledIsExpanded,
+                                searchIsActive = searchIsActive,
+                                onToggle = { scheduledSessionsExpanded = !scheduledSessionsExpanded },
+                            )
+                        }
+                        if (scheduledIsExpanded) {
+                            itemsIndexed(
+                                items = scheduledRows,
+                                key = { index, session -> "scheduled:${session.stableId}:$index" },
+                            ) { index, session ->
+                                sessionRowContent(session, "scheduled:${session.stableId}:$index")
+                            }
+                            if (!searchIsActive && scheduledGroups.hasAdditionalScheduledSessions) {
+                                item(key = "scheduled_sessions_view_all") {
+                                    ScheduledSessionsViewAllRow(
+                                        onClick = {
+                                            scheduledSessionsQuery = ""
+                                            viewingAllScheduledSessions = true
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (!state.showArchived && !searchExpanded) {
+                        item(key = "sessions_heading") {
+                            Text(
+                                stringResource(R.string.sessions_title),
+                                modifier = Modifier.padding(start = 8.dp, top = 22.dp, bottom = 10.dp),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    val ordinarySessions = if (state.showArchived) state.visibleSessions else scheduledGroups.ordinary
+                    if (ordinarySessions.isEmpty()) {
+                        if (!showsScheduledDisclosure || scheduledGroups.scheduled.isEmpty()) {
+                            item { EmptySessionsRow() }
+                        }
+                    } else {
+                        itemsIndexed(
+                            items = ordinarySessions,
+                            key = { index, session -> "ordinary:${session.stableId}:$index" },
+                        ) { index, session ->
+                            sessionRowContent(session, "ordinary:${session.stableId}:$index")
+                        }
                     }
                 }
             }
@@ -492,6 +560,182 @@ fun SessionListRoute(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun ScheduledSessionsDisclosureHeader(
+    count: Int,
+    expanded: Boolean,
+    searchIsActive: Boolean,
+    onToggle: () -> Unit,
+) {
+    val accessibilityLabel = localizedString(
+        when {
+            searchIsActive -> "Scheduled sessions"
+            expanded -> "Collapse scheduled sessions"
+            else -> "Expand scheduled sessions"
+        },
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = if (searchIsActive) 16.dp else 12.dp)
+            .clip(HermexCardShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .clickable(enabled = !searchIsActive, onClick = onToggle)
+            .semantics { contentDescription = accessibilityLabel }
+            .testTag("scheduled_sessions_disclosure")
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_lucide_calendar_clock),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            localizedString("Scheduled sessions"),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+        if (!searchIsActive) {
+            Image(
+                painter = painterResource(R.drawable.ic_hermex_chevron_down),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurfaceVariant),
+                modifier = Modifier
+                    .size(16.dp)
+                    .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScheduledSessionsViewAllRow(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag("scheduled_sessions_view_all")
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_hermex_search),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurfaceVariant),
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            localizedString("View all"),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Image(
+            painter = painterResource(R.drawable.ic_hermex_chevron_right),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurfaceVariant),
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScheduledSessionsScreen(
+    state: SessionListUiState,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    sessionRowContent: @Composable (SessionSummary, String) -> Unit,
+) {
+    val sessions = state.scheduledSessions(query)
+    PullToRefreshBox(
+        isRefreshing = state.isLoading,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 18.dp,
+                bottom = 36.dp,
+            ),
+        ) {
+            item(key = "scheduled_sessions_header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HermexIconButton(
+                        label = localizedString("Back"),
+                        symbol = "<",
+                        onClick = onBack,
+                        tonalContainerColor = Color.Transparent,
+                    )
+                    Text(
+                        localizedString("Scheduled sessions"),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        sessions.size.toString(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item(key = "scheduled_sessions_search") {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    label = { Text(stringResource(R.string.search_sessions)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 10.dp)
+                        .testTag("scheduled_sessions_search_field"),
+                )
+            }
+            if (state.isLoading && sessions.isEmpty()) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(top = 30.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(strokeWidth = 2.dp)
+                    }
+                }
+            } else if (sessions.isEmpty()) {
+                item { EmptySessionsRow() }
+            } else {
+                itemsIndexed(
+                    items = sessions,
+                    key = { index, session -> "scheduled-all:${session.stableId}:$index" },
+                ) { index, session ->
+                    sessionRowContent(session, "scheduled-all:${session.stableId}:$index")
+                }
+            }
+        }
     }
 }
 

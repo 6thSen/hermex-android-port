@@ -1,1 +1,1 @@
-Adds playable and downloadable transcript audio, native video previews and gallery saving, arbitrary MEDIA file downloads, extensionless media detection, and a persistent two-pane session/chat layout on large screens.
+Adds a collapsible scheduled-sessions section with search and a full-list view, recognizes cron-prefixed sessions, and replaces task delivery free text with server-provided choices while preserving custom and legacy targets.

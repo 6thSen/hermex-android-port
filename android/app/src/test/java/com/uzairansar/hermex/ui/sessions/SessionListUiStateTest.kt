@@ -60,6 +60,44 @@ class SessionListUiStateTest {
     }
 
     @Test
+    fun scheduledGroupsRecognizeCronIdsAndSeparateThemFromOrdinarySessions() {
+        val state = SessionListUiState(
+            sessions = listOf(
+                SessionSummary(sessionId = "ordinary", title = "Normal", lastMessageAt = 30.0),
+                SessionSummary(sessionId = "cron_nightly", title = "Nightly", lastMessageAt = 20.0),
+                SessionSummary(sessionId = "marked", title = "Marked", rawSource = "cron", lastMessageAt = 10.0),
+                SessionSummary(sessionId = "cron_archived", title = "Archived", archived = true),
+            ),
+        )
+
+        val groups = state.scheduledSessionGroups
+        assertEquals(listOf("ordinary"), groups.ordinary.map { it.sessionId })
+        assertEquals(listOf("cron_nightly", "marked"), groups.scheduled.map { it.sessionId })
+        assertEquals(2, groups.totalScheduledCount)
+        assertEquals(true, groups.showsDisclosure(isSearchActive = false))
+    }
+
+    @Test
+    fun scheduledDisclosureUsesFiveRowPreviewAndSearchAwareVisibility() {
+        val scheduled = (1..6).map { index ->
+            SessionSummary(
+                sessionId = "cron_$index",
+                title = if (index == 6) "Needle" else "Scheduled $index",
+                lastMessageAt = index.toDouble(),
+            )
+        }
+        val state = SessionListUiState(sessions = scheduled)
+
+        assertEquals(5, state.scheduledSessionGroups.scheduledPreview.size)
+        assertEquals(true, state.scheduledSessionGroups.hasAdditionalScheduledSessions)
+        assertEquals(listOf("cron_6"), state.scheduledSessions("needle").map { it.sessionId })
+        assertEquals(
+            false,
+            state.copy(searchQuery = "missing").scheduledSessionGroups.showsDisclosure(isSearchActive = true),
+        )
+    }
+
+    @Test
     fun automatedSessionKindsHaveIndependentVisibilityControls() {
         val sessions = listOf(
             SessionSummary(sessionId = "app", title = "App"),

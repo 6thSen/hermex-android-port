@@ -430,6 +430,66 @@ class HermexUiFlowTest {
     }
 
     @Test
+    fun sessionListSeparatesScheduledSessionsAndOpensFullList() {
+        val scheduledSessions = (1..6).joinToString(",") { index ->
+            """{"session_id":"cron_$index","title":"Cron $index","message_count":1,"last_message_at":$index}"""
+        }
+        val mockServer = MockWebServer().also { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.url.encodedPath) {
+                    "/api/projects" -> json("""{"projects":[]}""")
+                    "/api/profiles" -> json("""{"profiles":[],"single_profile_mode":true}""")
+                    "/api/sessions" -> json(
+                        """{"sessions":[{"session_id":"ordinary","title":"Ordinary Chat","message_count":1},$scheduledSessions],"archived_count":0}""",
+                    )
+                    else -> MockResponse.Builder().code(404).body("""{"error":"unexpected"}""").build()
+                }
+            }
+            server.start()
+            this.server = server
+        }
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val container = AppContainer(application)
+        val account = ServerAccount(
+            id = mockServer.url("/").toString(),
+            urlString = mockServer.url("/").toString(),
+            displayName = "Mock Hermex",
+            initials = "MH",
+        )
+
+        composeRule.setContent {
+            HermexTheme {
+                SessionListRoute(
+                    authState = AuthState.LoggedIn(mockServer.url("/"), account),
+                    container = container,
+                    onOpenChat = {},
+                    onOpenVoiceChat = {},
+                    onOpenSharedDraft = {},
+                    onOpenPanels = {},
+                    onOpenSettings = {},
+                    onNeedsOnboarding = {},
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("scheduled_sessions_disclosure").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("scheduled_sessions_disclosure").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Ordinary Chat").performScrollTo().assertIsDisplayed()
+        assertTrue(composeRule.onAllNodesWithText("Cron 6").fetchSemanticsNodes().isEmpty())
+
+        composeRule.onNodeWithTag("scheduled_sessions_disclosure").performScrollTo().performClick()
+        composeRule.onNodeWithText("Cron 6").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("session_list").performScrollToNode(hasSemanticsText("View all"))
+        composeRule.onNodeWithTag("scheduled_sessions_view_all").performClick()
+        composeRule.onNodeWithTag("scheduled_sessions_search_field").assertIsDisplayed().performTextInput("Cron 1")
+        composeRule.onNodeWithTag("session_row_cron_1").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        composeRule.onNodeWithTag("scheduled_sessions_disclosure").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     fun sessionListRefreshesWhenDestinationReturns() {
         val showUpdatedSession = AtomicBoolean(false)
         val mockServer = MockWebServer().also { server ->
@@ -1618,6 +1678,9 @@ class HermexUiFlowTest {
                             """.trimIndent(),
                         )
                         "/api/crons/status" -> json("""{"running_jobs":{}}""")
+                        "/api/crons/delivery-options" -> json(
+                            """{"platforms":[{"value":"local","label":"Local output only"},{"value":"origin","label":"Reply to creator"}]}""",
+                        )
                         "/api/crons/output" -> json(
                             """{"job_id":"job-1","outputs":[{"filename":"latest.md","content":"$longTaskOutput"}]}""",
                         )
@@ -1682,6 +1745,13 @@ class HermexUiFlowTest {
             .boundsInRoot
         assertTrue(abs(taskSheetAfterScroll.top - taskSheetBeforeScroll.top) <= 1f)
         assertTrue(abs(taskSheetAfterScroll.bottom - taskSheetBeforeScroll.bottom) <= 1f)
+        composeRule.onNodeWithText("Edit").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { hasText("Edit Task") }
+        composeRule.onNodeWithText("Local output only").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Deliver").performClick()
+        composeRule.onNodeWithText("Reply to creator").assertIsDisplayed()
+        composeRule.onNodeWithText("Reply to creator").performClick()
+        composeRule.onNodeWithText("Reply to creator").assertIsDisplayed()
     }
 
     @Test

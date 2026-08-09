@@ -56,6 +56,25 @@ internal val ProjectColorPalette = listOf(
 internal fun defaultProjectColorHex(existingProjectCount: Int): String =
     ProjectColorPalette[existingProjectCount.coerceAtLeast(0) % ProjectColorPalette.size].hex
 
+data class ScheduledSessionGroups(
+    val ordinary: List<SessionSummary>,
+    val scheduled: List<SessionSummary>,
+    val totalScheduledCount: Int,
+) {
+    val scheduledPreview: List<SessionSummary>
+        get() = scheduled.take(ScheduledPreviewLimit)
+
+    val hasAdditionalScheduledSessions: Boolean
+        get() = scheduled.size > scheduledPreview.size
+
+    fun showsDisclosure(isSearchActive: Boolean): Boolean =
+        totalScheduledCount > 0 && (!isSearchActive || scheduled.isNotEmpty())
+
+    private companion object {
+        const val ScheduledPreviewLimit = 5
+    }
+}
+
 enum class SessionOpenDestination {
     Chat,
     VoiceChat,
@@ -136,6 +155,34 @@ data class SessionListUiState(
             }
             return localMatches + remoteMatches.sortedForSessionList()
         }
+
+    val scheduledSessionGroups: ScheduledSessionGroups
+        get() {
+            val visible = visibleSessions
+            return ScheduledSessionGroups(
+                ordinary = visible.filterNot { it.isCronSession },
+                scheduled = visible.filter { it.isCronSession && it.archived != true },
+                totalScheduledCount = if (sessionRowDisplaySettings.showCronSessions) {
+                    sessions.count { it.isCronSession && it.archived != true }
+                } else {
+                    0
+                },
+            )
+        }
+
+    fun scheduledSessions(searchQuery: String): List<SessionSummary> {
+        if (!sessionRowDisplaySettings.showCronSessions) return emptyList()
+        val query = searchQuery.normalizedSearchQuery()
+        return sessions
+            .asSequence()
+            .filter { it.archived != true && it.isCronSession }
+            .filter { showCliSessions || it.isCliSession != true }
+            .filter { showClaudeCodeSessions || !it.isClaudeCodeSession }
+            .filter { sessionRowDisplaySettings.showSubagentSessions || !it.isDelegatedSubagentSession }
+            .filter { query.isEmpty() || it.searchableText.contains(query) }
+            .toList()
+            .sortedForSessionList()
+    }
 }
 
 @Serializable
@@ -904,5 +951,9 @@ internal fun contentMatchSessionIds(
 }
 
 private val SessionSummary.isCronSession: Boolean
-    get() = listOfNotNull(sourceTag, sessionSource, sourceLabel)
-        .any { source -> source.contains("cron", ignoreCase = true) }
+    get() {
+        if (sessionId?.trim()?.startsWith("cron_", ignoreCase = true) == true) return true
+        return listOfNotNull(sessionSource, sourceTag, rawSource, sourceLabel)
+            .map(String::trim)
+            .any { source -> source.contains("cron", ignoreCase = true) }
+    }
