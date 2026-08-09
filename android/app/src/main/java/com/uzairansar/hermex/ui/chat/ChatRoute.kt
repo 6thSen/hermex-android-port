@@ -546,6 +546,12 @@ fun ChatRoute(
     val transcriptListState = rememberLazyListState()
     val isTranscriptDragged by transcriptListState.interactionSource.collectIsDraggedAsState()
     var followsTranscriptBottom by remember(sessionId) { mutableStateOf(true) }
+    var transcriptScrollCooldownActive by remember(sessionId) { mutableStateOf(false) }
+    var isReadingOlderTranscript by remember(sessionId) { mutableStateOf(false) }
+    val nearBottomTolerancePx = with(density) {
+        (if (state.isStreaming) 160.dp else 80.dp).roundToPx()
+    }
+    val readingOlderHysteresisPx = with(density) { 64.dp.roundToPx() }
     val isTranscriptAtBottom by remember(sessionId, transcriptListState) {
         derivedStateOf {
             val layout = transcriptListState.layoutInfo
@@ -559,20 +565,66 @@ fun ChatRoute(
             )
         }
     }
+    val isTranscriptNearBottomNow by remember(sessionId, transcriptListState, nearBottomTolerancePx) {
+        derivedStateOf {
+            val layout = transcriptListState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()
+            isTranscriptNearBottom(
+                totalItemsCount = layout.totalItemsCount,
+                lastVisibleIndex = lastVisible?.index ?: -1,
+                lastVisibleOffset = lastVisible?.offset ?: 0,
+                lastVisibleSize = lastVisible?.size ?: 0,
+                viewportEndOffset = layout.viewportEndOffset,
+                tolerancePixels = nearBottomTolerancePx,
+            )
+        }
+    }
 
-    LaunchedEffect(transcriptListState, isTranscriptDragged) {
+    LaunchedEffect(isTranscriptDragged) {
+        if (isTranscriptDragged) {
+            transcriptScrollCooldownActive = true
+        } else {
+            delay(TRANSCRIPT_USER_SCROLL_COOLDOWN_MILLIS)
+            transcriptScrollCooldownActive = false
+        }
+    }
+
+    LaunchedEffect(transcriptListState, isTranscriptDragged, nearBottomTolerancePx, readingOlderHysteresisPx) {
         snapshotFlow {
             val layout = transcriptListState.layoutInfo
-            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
-            TranscriptScrollObservation(
-                isUserDragging = isTranscriptDragged,
-                lastScrolledBackward = transcriptListState.lastScrolledBackward,
-                isNearBottom = layout.totalItemsCount == 0 || lastVisible >= layout.totalItemsCount - 2,
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()
+            val isNearBottom = isTranscriptNearBottom(
+                totalItemsCount = layout.totalItemsCount,
+                lastVisibleIndex = lastVisible?.index ?: -1,
+                lastVisibleOffset = lastVisible?.offset ?: 0,
+                lastVisibleSize = lastVisible?.size ?: 0,
+                viewportEndOffset = layout.viewportEndOffset,
+                tolerancePixels = nearBottomTolerancePx,
             )
-        }.collect { observation ->
+            val distanceFromBottom = when {
+                layout.totalItemsCount == 0 -> 0
+                lastVisible?.index != layout.totalItemsCount - 1 -> Int.MAX_VALUE
+                else -> (lastVisible.offset + lastVisible.size - layout.viewportEndOffset).coerceAtLeast(0)
+            }
+            TranscriptScrollMetrics(
+                observation = TranscriptScrollObservation(
+                    isUserDragging = isTranscriptDragged,
+                    lastScrolledBackward = transcriptListState.lastScrolledBackward,
+                    isNearBottom = isNearBottom,
+                ),
+                distanceFromBottomPixels = distanceFromBottom,
+            )
+        }.collect { metrics ->
             followsTranscriptBottom = transcriptFollowState(
                 currentlyFollowing = followsTranscriptBottom,
-                observation = observation,
+                observation = metrics.observation,
+            )
+            isReadingOlderTranscript = transcriptReadingOlderState(
+                currentlyReadingOlder = isReadingOlderTranscript,
+                isNearBottom = metrics.observation.isNearBottom,
+                distanceFromBottomPixels = metrics.distanceFromBottomPixels,
+                nearBottomTolerancePixels = nearBottomTolerancePx,
+                hysteresisPixels = readingOlderHysteresisPx,
             )
         }
     }
@@ -585,28 +637,72 @@ fun ChatRoute(
         state.responseCompletionTrigger,
         state.isLoading,
         composerHeightPx,
+        transcriptScrollCooldownActive,
     ) {
-        if (!shouldAutoScrollTranscript(followsTranscriptBottom, transcriptListState.isScrollInProgress)) {
+        if (!shouldAutoScrollTranscript(
+                followsBottom = followsTranscriptBottom,
+                isScrollInProgress = transcriptListState.isScrollInProgress,
+                isUserScrollCooldownActive = transcriptScrollCooldownActive,
+            )
+        ) {
             return@LaunchedEffect
         }
         delay(32)
-        if (!shouldAutoScrollTranscript(followsTranscriptBottom, transcriptListState.isScrollInProgress)) {
+        if (!shouldAutoScrollTranscript(
+                followsBottom = followsTranscriptBottom,
+                isScrollInProgress = transcriptListState.isScrollInProgress,
+                isUserScrollCooldownActive = transcriptScrollCooldownActive,
+            )
+        ) {
             return@LaunchedEffect
         }
         val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
         if (lastItem >= 0) transcriptListState.animateScrollToItem(lastItem)
     }
 
-    LaunchedEffect(isTranscriptAtBottom, followsTranscriptBottom) {
-        if (isTranscriptAtBottom || !followsTranscriptBottom || transcriptListState.isScrollInProgress) {
+    LaunchedEffect(isTranscriptAtBottom, followsTranscriptBottom, transcriptScrollCooldownActive) {
+        if (
+            isTranscriptAtBottom ||
+            !followsTranscriptBottom ||
+            transcriptListState.isScrollInProgress ||
+            transcriptScrollCooldownActive
+        ) {
             return@LaunchedEffect
         }
         // AndroidView-backed Markdown can grow after the message-count effect fires.
         // Re-anchor once the next frame has committed the measured height.
         withFrameNanos { }
-        if (followsTranscriptBottom && !transcriptListState.isScrollInProgress) {
+        if (
+            followsTranscriptBottom &&
+            !transcriptListState.isScrollInProgress &&
+            !transcriptScrollCooldownActive
+        ) {
             val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
             if (lastItem >= 0) transcriptListState.scrollToItem(lastItem, Int.MAX_VALUE)
+        }
+    }
+
+    LaunchedEffect(transcriptListState, followsTranscriptBottom, transcriptScrollCooldownActive) {
+        snapshotFlow { transcriptListState.isScrollInProgress }.collect { isScrollInProgress ->
+            if (
+                isScrollInProgress ||
+                !followsTranscriptBottom ||
+                transcriptScrollCooldownActive ||
+                isTranscriptAtBottom
+            ) {
+                return@collect
+            }
+            // Content can grow while an earlier follow animation is still running.
+            // Catch up after it settles so the transcript cannot remain one layout behind.
+            withFrameNanos { }
+            if (
+                followsTranscriptBottom &&
+                !transcriptListState.isScrollInProgress &&
+                !transcriptScrollCooldownActive
+            ) {
+                val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
+                if (lastItem >= 0) transcriptListState.scrollToItem(lastItem, Int.MAX_VALUE)
+            }
         }
     }
 
@@ -985,10 +1081,20 @@ fun ChatRoute(
                             voiceDictationError = voiceDictationError,
                             streamingSendBehavior = streamingSendBehavior,
                             primaryActionTintColor = primaryActionTintColor,
-                            showSecondaryBar = isTranscriptAtBottom,
+                            showSecondaryBar = !isReadingOlderTranscript,
                             onDraftChange = viewModel::updateDraft,
-                            onSend = viewModel::send,
-                            onStreamingSend = { viewModel.submitStreamingDraft(streamingSendBehavior) },
+                            onSend = {
+                                followsTranscriptBottom = true
+                                transcriptScrollCooldownActive = false
+                                isReadingOlderTranscript = false
+                                viewModel.send()
+                            },
+                            onStreamingSend = {
+                                followsTranscriptBottom = true
+                                transcriptScrollCooldownActive = false
+                                isReadingOlderTranscript = false
+                                viewModel.submitStreamingDraft(streamingSendBehavior)
+                            },
                             onCancel = viewModel::cancel,
                             onOpenModelPicker = { showsModelPicker = true },
                             onOpenProfilePicker = { showsProfilePicker = true },
@@ -998,7 +1104,12 @@ fun ChatRoute(
                             onAttach = { showsAttachmentOptions = true },
                             onVoiceDictation = requestVoiceDictation,
                             onVoiceNote = requestVoiceNote,
-                            onStopVoiceNote = { viewModel.stopAndSendVoiceNote(recorder) },
+                            onStopVoiceNote = {
+                                followsTranscriptBottom = true
+                                transcriptScrollCooldownActive = false
+                                isReadingOlderTranscript = false
+                                viewModel.stopAndSendVoiceNote(recorder)
+                            },
                             onCancelVoice = { viewModel.cancelVoiceNote(recorder) },
                             onRemoveAttachment = viewModel::removeAttachment,
                             loadAttachmentImage = viewModel::attachmentImageData,
@@ -1007,12 +1118,14 @@ fun ChatRoute(
                     }
                 }
             }
-            if (!isTranscriptAtBottom) {
+            if (!isTranscriptNearBottomNow && (!state.isStreaming || !followsTranscriptBottom)) {
                 HermexIconButton(
                     label = localizedString("Go to latest message"),
                     symbol = "↓",
                     onClick = {
                         followsTranscriptBottom = true
+                        transcriptScrollCooldownActive = false
+                        isReadingOlderTranscript = false
                         val lastItem = transcriptListState.layoutInfo.totalItemsCount - 1
                         if (lastItem >= 0) {
                             speechScope.launch {
