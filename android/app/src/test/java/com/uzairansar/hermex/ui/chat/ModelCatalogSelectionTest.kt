@@ -40,4 +40,50 @@ class ModelCatalogSelectionTest {
 
         assertNull(models.firstMatchingCatalogModel("shared-model", "unknown-provider"))
     }
+
+    @Test
+    fun bareDefaultIdMatchesNamespacedNousEntryFirst() {
+        val nous = ModelSummary(
+            id = "@nous:deepseek/deepseek-v4-flash-0731",
+            label = "Deepseek V4 Flash 0731 (via Nous)",
+            provider = "nous",
+        )
+        val openRouter = ModelSummary(
+            id = "deepseek/deepseek-v4-flash-0731",
+            label = "deepseek/deepseek-v4-flash-0731",
+            provider = "openrouter",
+        )
+        // Catalog order mirrors the server's group order: nous group first.
+        val models = listOf(nous, openRouter)
+
+        // Bare default model id, no provider pin: must resolve to the nous entry,
+        // not the openrouter one (the @nous: prefix must not break the match).
+        assertEquals(nous, models.firstMatchingCatalogModel("deepseek/deepseek-v4-flash-0731", null))
+    }
+
+    @Test
+    fun namespacedTargetMatchesBareCatalogEntry() {
+        val nous = ModelSummary(id = "@nous:deepseek/deepseek-v4-flash-0731", provider = "nous")
+
+        assertEquals(
+            nous,
+            listOf(nous).firstMatchingCatalogModel("@nous:deepseek/deepseek-v4-flash-0731", "nous"),
+        )
+    }
+
+    @Test
+    fun explicitProviderStillWinsWithNamespacedEntries() {
+        val nous = ModelSummary(id = "@nous:deepseek/deepseek-v4-flash-0731", provider = "nous")
+        val openRouter = ModelSummary(id = "deepseek/deepseek-v4-flash-0731", provider = "openrouter")
+        val models = listOf(nous, openRouter)
+
+        assertEquals(
+            openRouter,
+            models.firstMatchingCatalogModel("deepseek/deepseek-v4-flash-0731", "openrouter"),
+        )
+        assertEquals(
+            nous,
+            models.firstMatchingCatalogModel("deepseek/deepseek-v4-flash-0731", "nous"),
+        )
+    }
 }

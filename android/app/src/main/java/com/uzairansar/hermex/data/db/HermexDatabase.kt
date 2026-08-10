@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [CachedSessionEntity::class, CachedMessageEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class HermexDatabase : RoomDatabase() {
@@ -18,6 +18,11 @@ abstract class HermexDatabase : RoomDatabase() {
             context,
             HermexDatabase::class.java,
             "hermex.db",
-        ).build()
+        )
+            // v2: wipe stale session cache (7-day TTL) so pre-fix sessions cached
+            // with a bare model id / openrouter provider pin don't survive the
+            // catalog-namespace fix. The cache is re-fetched from the server.
+            .fallbackToDestructiveMigration()
+            .build()
     }
 }
