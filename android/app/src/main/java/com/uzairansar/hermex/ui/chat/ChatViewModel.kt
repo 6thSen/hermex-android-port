@@ -501,7 +501,15 @@ class ChatViewModel internal constructor(
     ) {
         _state.update { current ->
             val nextSessionModel = snapshot.model.nonBlank() ?: current.sessionModel
-            val nextSessionModelProvider = snapshot.modelProvider.nonBlank() ?: current.sessionModelProvider
+            // Fresh session (no model/provider yet): do NOT inherit the
+            // previous session's provider — that stale carry-over pinned
+            // sessions to openrouter after a provider switch. Null lets the
+            // server resolve its configured default (nous).
+            val nextSessionModelProvider = when {
+                !snapshot.modelProvider.isNullOrBlank() -> snapshot.modelProvider
+                snapshot.model.isNullOrBlank() && snapshot.messages.isEmpty() -> null
+                else -> current.sessionModelProvider
+            }
             val sessionModelSelection = current.modelOptions.firstMatchingCatalogModel(nextSessionModel, nextSessionModelProvider)
             transform(
                 current.copy(
@@ -2390,7 +2398,13 @@ class ChatViewModel internal constructor(
         }
         viewModelScope.launch {
             _state.update { it.copy(isRunningSessionAction = true, draft = "", error = null, notice = null) }
-            runSuspendCatching { repository.createSession(state.selectedWorkspacePath, state.selectedModel, state.selectedProfile) }
+            // A brand-new session must not inherit the previous session's
+            // model/provider state (stale openrouter pin carried sessions
+            // onto the wrong backend). Only forward an explicit pick; null
+            // lets the server resolve its configured default (nous).
+            val modelForNewSession = state.selectedModel
+                .takeIf { state.pendingExplicitModelPick }
+            runSuspendCatching { repository.createSession(state.selectedWorkspacePath, modelForNewSession, state.selectedProfile) }
                 .onSuccess { session ->
                     val newSessionId = session?.sessionId
                     if (newSessionId.isNullOrBlank()) {
