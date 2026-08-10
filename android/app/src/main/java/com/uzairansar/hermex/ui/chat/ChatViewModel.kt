@@ -889,7 +889,12 @@ class ChatViewModel internal constructor(
                             selectedModel = selectedModel,
                             sessionModel = selectedModel?.id ?: selectedModel?.name,
                             sessionModelProvider = selectedModel?.provider,
-                            pendingExplicitModelPick = false,
+                            // Preserve an explicit user model pick across a profile
+                            // switch when the model itself is unchanged — clearing
+                            // the flag here would let a later /new session silently
+                            // inherit a stale provider instead of the user's pick.
+                            pendingExplicitModelPick = current.pendingExplicitModelPick &&
+                                selectedModel?.modelIdentity == current.selectedModel?.modelIdentity,
                         )
                     }
                     profileWasSwitched = true
